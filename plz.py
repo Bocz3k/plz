@@ -1,3 +1,4 @@
+import zipfile
 import sys
 import theliblib as tl
 from theliblib import SubCmd, ArgType
@@ -7,6 +8,8 @@ import shutil
 import requests
 import toml
 from bs4 import BeautifulSoup
+
+VERSION = 'v0.1.0'
 
 
 def helpfunc(topic: str = None):
@@ -46,7 +49,7 @@ except FileNotFoundError:
     with open(tl.get_dir() + 'config.toml', 'w') as f:
         toml.dump({'runin': '', 'clear_runin': False}, f)
     with open(tl.get_dir() + 'aliases.toml', 'w') as f:
-        toml.dump({}, f)
+        f.write('')
     cfg = {'runin': None, 'clear_runin': False}
     aliases = {}
 
@@ -119,7 +122,23 @@ def sub_fetch(name: str):
 
 
 def sub_update():
-    ...
+    response = requests.get("https://api.github.com/repos/Bocz3k/plz/releases/latest")
+    if response.status_code == 200:
+        print(response.json())
+        latest_version = response.json()['tag_name']
+        if latest_version != VERSION:
+            link = response.json()['zipball_url']
+            response = requests.get(link)
+
+            with open('update.zip', 'wb') as zip_file:
+                zip_file.write(response.content)
+            with zipfile.ZipFile('update.zip', 'r') as zip_ref:
+                zip_ref.extractall('update')
+            os.system('python update_helper.py')
+        else:
+            return "You are using the latest version."
+    else:
+        return "Failed to check for updates: " + str(response.status_code)
 
 
 # def sub_config(attribute_name: str, value: str | bool):
@@ -128,7 +147,12 @@ def sub_update():
 
 
 def check_for_updates():
-    ...
+    response = requests.get("https://api.github.com/repos/Bocz3k/plz/releases/latest")
+    if response.status_code == 200:
+        latest_version = response.json()['tag_name']
+        if latest_version != VERSION:
+            return f'New version available: {latest_version}\n' \
+                    'Run "plz update" to update.'
 
 
 def main():
