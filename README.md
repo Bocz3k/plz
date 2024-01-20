@@ -2,12 +2,16 @@
 Plz is an alias manager to help you manage your games.
 
 ## Installation
+### As EXE
 Download the [latest release](https://github.com/Bocz3k/plz/releases/latest). Extract it
 and run `plz.exe` from your shell
 ```
 ./plz random
 ```
 or add it to PATH and use it from anywhere.
+### As Python script
+Download the source code and run it as you would...
+TODO: add more info
 
 ## Usage
 ```python
