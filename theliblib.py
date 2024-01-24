@@ -129,7 +129,7 @@ class CLITool:
             raise AttributeError("CLITool instance hasn't been turned into a subcommand.")
         self.tree.arguments.append(arg_type)
 
-    def _get_stack(self, args: list[str], helpfunc) -> list[SubCmd, str]:
+    def _get_stack(self, args: list[str]) -> list[SubCmd, str]:
         if self.add_tree:
             args.insert(0, self.tree)
         stack = []
@@ -144,14 +144,13 @@ class CLITool:
                     args_left.pop(0)
                     break
                 if not ((verdict := args_left[0].test(arg)) == 'pass'):
-                    if helpfunc:
+                    if self.helpfunc:
                         stack.reverse()
                         for item in enumerate(stack):
                             if isinstance(item, SubCmd):
-                                if helpfunc:
-                                    print(r) if (r := helpfunc(item.path)) else 0
+                                print(r) if (r := self.helpfunc(item.path)) else 0
                     print(f"\n`{arg}`: {verdict}")
-                    exit(1)
+                    return
                 args_left.pop(0)
                 stack.append(arg)
             elif self._is_subcmd(arg):
@@ -161,17 +160,20 @@ class CLITool:
                         args_left = subcmd.arguments.copy()
                         break
             else:
-                if helpfunc:
-                    print(r) if (r := helpfunc()) else 0
-                exit(1)
+                if self.helpfunc:
+                    print(r) if (r := self.helpfunc("")) else 0
+                print("Wrong command: " + arg)
+                return
         if args_left:
             stack.reverse()
-            for item in stack:
-                if isinstance(item, SubCmd):
-                    if helpfunc:
-                        print(r) if (r := helpfunc(item.path)) else 0
-            exit(1)
+            if self.helpfunc:
+                for item in stack:
+                    if isinstance(item, SubCmd):
+                        print(r) if (r := self.helpfunc(item.path)) else 0
+            print("More arguments needed")
+            return
         return stack
+
 
     def _is_subcmd(self, string: str) -> bool:
         for subcmd in self._get_all_subcmds(self.tree):
@@ -188,9 +190,12 @@ class CLITool:
         return subcmds
 
     def run(self, argv: list[str], helpfunc = None, always_run = None) -> None:
+        self.helpfunc = helpfunc
         if helpfunc:
             self.add_subcmd(SubCmd("help", helpfunc, [ArgType(str, continuos=True)]))
-        stack = self._get_stack(argv[1:], helpfunc)
+        stack = self._get_stack(argv[1:])
+        if not stack:
+            return
         stack.reverse()
         for i, item in enumerate(stack):
             if isinstance(item, SubCmd):

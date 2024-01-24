@@ -3,5 +3,6 @@
 # Executable/Bytecode files
 plz.exe
 __pycache__
+output
 # User-only
 synctl
