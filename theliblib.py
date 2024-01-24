@@ -164,7 +164,7 @@ class CLITool:
                     print(r) if (r := self.helpfunc("")) else 0
                 print("Wrong command: " + arg)
                 return
-        if args_left:
+        if args_left and any([arg.required for arg in args_left]):
             stack.reverse()
             if self.helpfunc:
                 for item in stack:
