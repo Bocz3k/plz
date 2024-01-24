@@ -10,8 +10,15 @@ and run `plz.exe` from your shell
 ```
 or add it to PATH and use it from anywhere.
 ### As Python script
-Download the source code and run it as you would...
-TODO: add more info
+Download the source code and run it
+```
+python plz.py random
+```
+or compile `plz.rs` and run it
+```
+./plz random
+```
+or add the compiled binary to PATH and use it from anywhere.
 
 ## Usage
 ```python
