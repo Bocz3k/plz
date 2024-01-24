@@ -192,7 +192,7 @@ class CLITool:
     def run(self, argv: list[str], helpfunc = None, always_run = None) -> None:
         self.helpfunc = helpfunc
         if helpfunc:
-            self.add_subcmd(SubCmd("help", helpfunc, [ArgType(str, continuos=True)]))
+            self.add_subcmd(SubCmd("help", helpfunc, [ArgType(str, False, continuos=True)]))
         stack = self._get_stack(argv[1:])
         if not stack:
             return
