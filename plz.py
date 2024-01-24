@@ -9,7 +9,7 @@ import requests
 import toml
 from bs4 import BeautifulSoup
 
-VERSION = 'v0.1.0'
+VERSION = 'v0.1-beta'
 
 
 def helpfunc(topic: str = None):
@@ -95,7 +95,7 @@ def sub_alias_add(alias: str, point: str):
 
 
 def sub_alias_remove(alias: str):
-    aliases.remove(alias)
+    aliases.pop(alias)
     save_aliases()
 
 
