@@ -9,7 +9,7 @@ import requests
 import toml
 from bs4 import BeautifulSoup
 
-VERSION = 'v0.1.0-beta'
+VERSION = 'v0.1-beta'
 
 
 def helpfunc(topic: str = None):
