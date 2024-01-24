@@ -121,28 +121,6 @@ def sub_fetch(name: str):
         print(f"- {elem.find("span").text.rstrip()}: https:{elem.find('a').get('href')}")
 
 
-def sub_update():
-    response = requests.get("https://api.github.com/repos/Bocz3k/plz/releases/latest")
-    if response.status_code == 200:
-        print(response.json())
-        print(VERSION)
-        latest_version = response.json()['tag_name'] + "x"  # Add "x" to force update
-        if latest_version != VERSION:
-            link = response.json()['zipball_url']
-            response = requests.get(link)
-
-            print(os.listdir())
-            with open('update.zip', 'wb') as zip_file:
-                zip_file.write(response.content)
-            with zipfile.ZipFile('update.zip', 'r') as zip_ref:
-                zip_ref.extractall('update')
-            os.system('python update_helper.py')
-        else:
-            return "You are using the latest version."
-    else:
-        return "Failed to check for updates: " + str(response.status_code)
-
-
 # there's a todo in theliblib.py that needs to be done first
 # def sub_config(attribute_name: str, value: str | bool):
 #     cfg.update({attribute_name: value})
@@ -155,7 +133,7 @@ def check_for_updates():
         latest_version = response.json()['tag_name']
         if latest_version != VERSION:
             return f'New version available: {latest_version}\n' \
-                    'Run "plz update" to update.'
+                   f'Download the update from {response.json()["html_url"]}'
 
 
 def main():
@@ -164,7 +142,6 @@ def main():
     cli.add_subcmd(SubCmd("edit", sub_edit))
     cli.add_subcmd(SubCmd("run", run, [ArgType(str, options=aliases.keys())]))
     cli.add_subcmd(SubCmd("fetch", sub_fetch, [ArgType(str)]))
-    cli.add_subcmd(SubCmd("update", sub_update))
     # cli.add_subcmd(SubCmd("config", sub_config, [ArgType(str, options=['runin', 'clear_runin']), ArgType(str | bool)]))
     cli.add_subcmd(SubCmd("alias", subcmds=[
         SubCmd("list", sub_alias_list),
