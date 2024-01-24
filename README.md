@@ -1,5 +1,5 @@
-# Plz: Alias Manager
-Plz is an alias manager to help you manage your games.
+# plz: Alias Manager
+plz is an alias manager to help you manage your games.
 
 ## Installation
 ### As EXE
