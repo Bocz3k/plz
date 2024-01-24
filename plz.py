@@ -9,7 +9,7 @@ import requests
 import toml
 from bs4 import BeautifulSoup
 
-VERSION = 'v0.1-beta'
+VERSION = 'v0.1.0-beta'
 
 
 def helpfunc(topic: str = None):
@@ -141,6 +141,7 @@ def sub_update():
         return "Failed to check for updates: " + str(response.status_code)
 
 
+# there's a todo in theliblib.py that needs to be done first
 # def sub_config(attribute_name: str, value: str | bool):
 #     cfg.update({attribute_name: value})
 #     save_config()
