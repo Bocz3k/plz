@@ -202,5 +202,5 @@ class CLITool:
                 r = stack[:i]
                 r.reverse()
                 item.run(r)
-                if always_run:
-                    print(z) if (z := always_run()) else 0
+        if always_run:
+            print(z) if (z := always_run()) else 0
