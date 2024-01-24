@@ -125,11 +125,13 @@ def sub_update():
     response = requests.get("https://api.github.com/repos/Bocz3k/plz/releases/latest")
     if response.status_code == 200:
         print(response.json())
-        latest_version = response.json()['tag_name']
+        print(VERSION)
+        latest_version = response.json()['tag_name'] + "x"  # Add "x" to force update
         if latest_version != VERSION:
             link = response.json()['zipball_url']
             response = requests.get(link)
 
+            print(os.listdir())
             with open('update.zip', 'wb') as zip_file:
                 zip_file.write(response.content)
             with zipfile.ZipFile('update.zip', 'r') as zip_ref:
