@@ -5,4 +5,4 @@ plz.exe
 __pycache__
 output
 # User-only
-synctl
+build
