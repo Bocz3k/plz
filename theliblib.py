@@ -43,7 +43,7 @@ def get_dir():
         raise NotImplementedError("Function is not supported on " + platform())
 
 
-def cinput(prompt: str, requested_type: type = None, default=''):
+def cinput(prompt: str, requested_type: type = str, default=''):
     """
     Asks user with the `prompt`, and if `requested_type` is not none, tries to convert the user's
     input to the `requested_type`\n

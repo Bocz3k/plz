@@ -3,6 +3,7 @@
 # Executable/Bytecode files
 plz.exe
 __pycache__
-output
-# User-only
+bin
+# Build output
 build
+dist
