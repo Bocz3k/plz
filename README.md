@@ -2,23 +2,12 @@
 plz is an alias manager to help you manage your games.
 
 ## Installation
-### As EXE
 Download the [latest release](https://github.com/Bocz3k/plz/releases/latest). Extract it
 and run `plz.exe` from your shell
 ```
 ./plz random
 ```
 or add it to PATH and use it from anywhere.
-### As Python script
-Download the source code and run it
-```
-python plz.py random
-```
-or compile `plz.rs` and run it
-```
-./plz random
-```
-or add the compiled binary to PATH and use it from anywhere.
 
 ## Usage
 ```python
@@ -28,7 +17,7 @@ plz run lc
 plz alias add lc "D:/CoolGames/LC/Lethal Company.exe"
 # or remove aliases
 plz alias remove mclegends
-# you can also make it download games for you
+# you can also make it fetch links for games you want to download
 plz fetch terraria
 # for more info try
 plz help
