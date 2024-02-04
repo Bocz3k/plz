@@ -2,7 +2,7 @@ import os
 import shutil
 
 def main():
-    os.system('pyinstaller --noconfirm --onedir --console --icon "D:/Programming/Python/plz/plz.ico" --add-data "D:/Programming/Python/plz/theliblib.py;." --hidden-import "tomlkit" --hidden-import "requests" --hidden-import "bs4"  "D:/Programming/Python/plz/plz.py"')
+    os.system('pyinstaller --noconfirm --onedir --console --icon "plz.ico" --add-data "theliblib.py;." --hidden-import "tomlkit" --hidden-import "requests" --hidden-import "bs4" "plz.py"')
     os.remove('plz.spec')
     if os.path.exists('bin/plz.exe'):
         os.remove('bin/plz.exe')

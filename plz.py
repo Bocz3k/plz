@@ -125,12 +125,11 @@ def fix_config():
     if cfg['info_site'] != "game3rb" and cfg['info_site'] != "steamrip":
         logging.warning(f'info_site must be "game3rb" or "steamrip". Defaulting to "game3rb"')
         cfg['info_site'] = "game3rb"
-
-    logging.info("Saving config")
     save_config()
 
 
 def save_config():
+    logging.debug("Saving config")
     with open(tl.get_dir() + '\\..\\config.toml', 'w') as f:
         toml = tomlkit.document()
         toml.add(tomlkit.comment('Directory to run the game in | default: "" (make it "" for current working directory)'))
@@ -186,7 +185,6 @@ def sub_alias_remove(alias: str):
 
 
 def recursive_search(path: str, folder_path: str):
-    logging.debug(f'Checking {path} for executables')
     executables = []
     folders = []
     for file in os.listdir(folder_path):
@@ -195,10 +193,12 @@ def recursive_search(path: str, folder_path: str):
             executables.append(os.path.join(folder_path, file))
         elif isdir:
             folders.append(os.path.join(folder_path, file))
+    
     for executable in executables:
         if os.path.join(folder_path, executable) in aliases.values():
             logging.debug(f'Skipping {path} because it is already in the aliases list')
             return
+    
     if executables:
         if len(executables) > 1:
             def validate_int(string: str) -> int:
@@ -213,17 +213,17 @@ def recursive_search(path: str, folder_path: str):
             for i, executable in enumerate(executables, start=1):
                 print(f"[{i}]: {executable}")
             user_input = tl.cinput("Which executable should be used? (enter to skip)", validate_int, "skip")
-            if executable_file == 'skip':
+            if user_input == 'skip':
                 return
             executable_file = executables[user_input - 1]
         else:
             executable_file = executables[0]
         name = input(f'Alias name for {executable_file} (enter to skip): ')
-        if name != '':
+        if name:
             sub_alias_add(name, os.path.join(folder_path, executable_file))
     else:
         if folders:
-            logging.info("No executables found, going into subfolders")
+            logging.info(f"No executables found in {path}, going into subfolders")
             for folder in folders:
                 recursive_search(folder, os.path.join(folder_path, folder))
 
@@ -237,7 +237,7 @@ def sub_alias_autoadd():
         else:
             if path.endswith('.exe'):
                 name = input(f'Alias name for {path} (enter to skip): ')
-                if name != '':
+                if name:
                     sub_alias_add(name, os.path.join(folder_path, path))
 
 
@@ -334,8 +334,6 @@ def sub_fetch(name: str):
 
 
 def check_for_updates():
-    if VERSION.endswith('-dev'):
-        return
     response = requests.get("https://api.github.com/repos/Bocz3k/plz/releases/latest")
     if response.status_code == 200:
         latest_version = response.json()['tag_name']
