@@ -11,6 +11,7 @@ def main():
     shutil.move('dist/plz/_internal', 'bin')
     os.removedirs('dist/plz')
     print("Done!")
+    os.system('explorer bin')
 
 
 if __name__ == '__main__':
