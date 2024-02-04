@@ -1,9 +1,6 @@
-# Config files
-*.toml
 # Executable/Bytecode files
 plz.exe
 __pycache__
 bin
 # Build output
 build
-dist

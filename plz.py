@@ -1,6 +1,7 @@
-import sys
-import theliblib as tl
 from theliblib import SubCmd, ArgType
+from bs4 import BeautifulSoup
+import theliblib as tl
+import sys
 import random
 import os
 import shutil
@@ -8,7 +9,7 @@ import requests
 import tomlkit
 import time
 import logging
-from bs4 import BeautifulSoup
+
 
 VERSION = 'v0.1.1-beta-dev'
 EXECUTABLE_BLACKLIST = [
@@ -26,8 +27,6 @@ def helpfunc(topic: str = None):
         return "Usage: plz random\nSelects a random game and runs it."
     elif topic == 'fetch':
         return "Usage: plz fetch <game>\nFetches download links for that game."
-    elif topic == 'edit':
-        return "Usage: plz edit\nOpens VSCode where this CLI tool is."
     elif topic == 'alias list':
         return "Usage: plz alias list\nPrints a list of all aliases."
     elif topic == 'alias add':
@@ -42,7 +41,6 @@ Usage: plz help - Shows this menu.
        plz run <alias> - Runs the file binded to the alias.
        plz random - Selects a random game and runs it.
        plz fetch <game> - Fetches download links for that game.
-       plz edit - Opens VSCode where this CLI tool is.
        plz alias list - Prints a list of all aliases.
        plz alias add <name> <point> - Adds an alias to the list.
        plz alias remove <name> - Removes an alias from the list.
@@ -50,11 +48,10 @@ Usage: plz help - Shows this menu.
 """
 
 
-
 def fix_config():
     global cfg, aliases
     try:
-        with open(tl.get_dir() + 'config.toml') as f:
+        with open(tl.get_dir() + '\\..\\config.toml') as f:
             cfg = tomlkit.load(f)
     except FileNotFoundError:
         print('WARNING: No config file found. Creating one')
@@ -63,12 +60,34 @@ def fix_config():
         main()
         return True
     
+    if (
+        cfg['log_level'] != 'DEBUG' and
+        cfg['log_level'] != 'INFO' and
+        cfg['log_level'] != 'WARNING' and
+        cfg['log_level'] != 'ERROR' and
+        cfg['log_level'] != 'NONE'
+    ):
+        print("WARNING: log_level must be one of the following: DEBUG, INFO, WARNING, ERROR, NONE. Defaulting to WARNING")
+        cfg['log_level'] = 'WARNING'
+
+    if cfg['log_level'] == "NONE":
+        print("Logging disabled")
+        logging.disable()
+    else:
+        if cfg['log_level'] == "DEBUG":
+            logging.basicConfig(level=logging.DEBUG,
+                                format='%(relativeCreated)d: %(funcName)s | %(levelname)s: %(message)s')
+            logging.debug("Logging enabled")
+        else:
+            logging.basicConfig(level=eval("logging." + cfg['log_level'], globals()),
+                                format='%(relativeCreated)d | %(levelname)s: %(message)s')
+
     try:
-        with open(tl.get_dir() + 'aliases.toml') as f:
+        with open(tl.get_dir() + '\\..\\aliases.toml') as f:
             aliases = tomlkit.load(f)
     except FileNotFoundError:
         logging.warning('No aliases file found. Creating one')
-        with open(tl.get_dir() + 'aliases.toml', 'w') as f:
+        with open(tl.get_dir() + '\\..\\aliases.toml', 'w') as f:
             f.write('')
         aliases = {}
 
@@ -94,16 +113,6 @@ def fix_config():
         logging.warning("clear_runin must be a boolean. Defaulting to false")
         cfg['clear_runin'] = False
     
-    if (
-        cfg['log_level'] != 'DEBUG' and
-        cfg['log_level'] != 'INFO' and
-        cfg['log_level'] != 'WARNING' and
-        cfg['log_level'] != 'ERROR' and
-        cfg['log_level'] != 'NONE'
-    ):
-        logging.warning("log_level must be one of the following: DEBUG, INFO, WARNING, ERROR, NONE. Defaulting to WARNING")
-        cfg['log_level'] = 'WARNING'
-    
     if isinstance(cfg['fetch_sites'], list):
         for site in cfg['fetch_sites']:
             if site != "steamrip" and site != "game3rb":
@@ -122,7 +131,7 @@ def fix_config():
 
 
 def save_config():
-    with open(tl.get_dir() + 'config.toml', 'w') as f:
+    with open(tl.get_dir() + '\\..\\config.toml', 'w') as f:
         toml = tomlkit.document()
         toml.add(tomlkit.comment('Directory to run the game in | default: "" (make it "" for current working directory)'))
         toml.add('runin', cfg['runin'])
@@ -141,7 +150,7 @@ def save_config():
 
 def save_aliases():
     logging.info('Saving aliases')
-    with open(tl.get_dir() + 'aliases.toml', 'w') as f:
+    with open(tl.get_dir() + '\\..\\aliases.toml', 'w') as f:
         tomlkit.dump(aliases, f)
 
 
@@ -160,10 +169,6 @@ def sub_random():
     run(key)
 
 
-def sub_edit():
-    os.system('code ' + tl.get_dir())
-
-
 def sub_alias_list():
     max_len = max(len(game) for game in aliases.keys()) + 1
     for alias, path in aliases.items():
@@ -180,35 +185,60 @@ def sub_alias_remove(alias: str):
     save_aliases()
 
 
-def sub_alias_autoadd():
-    logging.info('Auto adding games')
-    for path in os.listdir(cfg['games_dir']):
-        logging.debug(f'Checking {path}')
-        if os.path.isdir(folder_path := os.path.join(cfg['games_dir'], path)):
-            logging.debug(f'Checking {path} for executables')
-            executables = []
-            for file in os.listdir(folder_path):
-                if file.endswith('.exe') and not file in EXECUTABLE_BLACKLIST:
-                    executables.append(os.path.join(folder_path, file))
-            for executable in executables:
-                logging.debug("exec: " + os.path.join(folder_path, executable))
-                if os.path.join(folder_path, executable) in aliases.values():
-                    logging.debug(f'Skipping {path} because it is already in the aliases list')
-                    continue
-            if executables:
-                if len(executables) > 1:
-                    for i, executable in enumerate(executables):
-                        print(f"[{i}]: {executable}")
-                    executable_file = executables[tl.cinput("Which executable should be used? ", int)]
-                else:
-                    executable_file = executables[0]
-                name = input(f'Alias name for {executable_file}: ')
-                sub_alias_add(name, os.path.join(folder_path, executable_file))
-            else:
-                logging.debug(f'Skipping {path} because it does not contain any executables')
+def recursive_search(path: str, folder_path: str):
+    logging.debug(f'Checking {path} for executables')
+    executables = []
+    folders = []
+    for file in os.listdir(folder_path):
+        isdir = os.path.isdir(os.path.join(folder_path, file))
+        if not isdir and file.endswith('.exe') and not file in EXECUTABLE_BLACKLIST:
+            executables.append(os.path.join(folder_path, file))
+        elif isdir:
+            folders.append(os.path.join(folder_path, file))
+    for executable in executables:
+        if os.path.join(folder_path, executable) in aliases.values():
+            logging.debug(f'Skipping {path} because it is already in the aliases list')
+            return
+    if executables:
+        if len(executables) > 1:
+            def validate_int(string: str) -> int:
+                try:
+                    strint = int(string)
+                    if strint > 0 and strint <= len(executables):
+                        return strint
+                    raise TypeError
+                except (ValueError, TypeError):
+                    raise TypeError
+
+            for i, executable in enumerate(executables, start=1):
+                print(f"[{i}]: {executable}")
+            user_input = tl.cinput("Which executable should be used? (enter to skip)", validate_int, "skip")
+            if executable_file == 'skip':
+                return
+            executable_file = executables[user_input - 1]
         else:
-            logging.debug(f'Skipping {path} because it is not a folder')
-    save_aliases()
+            executable_file = executables[0]
+        name = input(f'Alias name for {executable_file} (enter to skip): ')
+        if name != '':
+            sub_alias_add(name, os.path.join(folder_path, executable_file))
+    else:
+        if folders:
+            logging.info("No executables found, going into subfolders")
+            for folder in folders:
+                recursive_search(folder, os.path.join(folder_path, folder))
+
+
+def sub_alias_autoadd():
+    if cfg['games_dir'] == '':
+        return "games_dir is empty, plz alias autoadd won't work. You'll need to fill it yourself"
+    for path in os.listdir(cfg['games_dir']):
+        if os.path.isdir(folder_path := os.path.join(cfg['games_dir'], path)):
+            recursive_search(path, folder_path)
+        else:
+            if path.endswith('.exe'):
+                name = input(f'Alias name for {path} (enter to skip): ')
+                if name != '':
+                    sub_alias_add(name, os.path.join(folder_path, path))
 
 
 def fetch_steamrip(name: str):
@@ -267,6 +297,8 @@ def fetch_game3rb(name: str):
     for link in links:
         host = link.find('a').get('href')
         idx = host.find('://') + 3
+        if host.find('www.') != -1:
+            idx += 4
         slash = host.find('/', idx)
         name = host[idx:slash]
         subdomain = name.find('.')
@@ -316,19 +348,8 @@ def main():
     if fix_config():
         return
 
-    if cfg['log_level'] == "NONE":
-        logging.disable()
-    else:
-        if cfg['log_level'] == "DEBUG":
-            logging.basicConfig(level=eval("logging." + cfg['log_level'], globals()),
-                                format='%(relativeCreated)d: %(name)s/%(funcName)s | %(levelname)s: %(message)s')
-        else:
-            logging.basicConfig(level=eval("logging." + cfg['log_level'], globals()),
-                                format='%(relativeCreated)d: %(name)s | %(levelname)s: %(message)s')
-
     cli = tl.CLITool()
     cli.add_subcmd(SubCmd("random", sub_random))
-    cli.add_subcmd(SubCmd("edit", sub_edit))
     cli.add_subcmd(SubCmd("run", run, [ArgType(str, options=aliases.keys())]))
     cli.add_subcmd(SubCmd("fetch", sub_fetch, [ArgType(str)]))
     cli.add_subcmd(SubCmd("alias", subcmds=[
@@ -337,7 +358,11 @@ def main():
         SubCmd("remove", sub_alias_remove, [ArgType(str, options=aliases.keys())]),
         SubCmd("autoadd", sub_alias_autoadd),
     ]))
-    os.chdir(runin) if (runin := cfg['runin']) else 0
+    try:
+        os.chdir(runin) if (runin := cfg['runin']) else 0
+    except FileNotFoundError:
+        logging.error(f'Invalid runin path: {runin}')
+        return
     cli.run(sys.argv, helpfunc, check_for_updates)
 
 
