@@ -17,7 +17,7 @@ plz run lc
 plz alias add lc "D:/CoolGames/LC/Lethal Company.exe"
 # or remove aliases
 plz alias remove mclegends
-# you can also make it download games for you
+# you can also make it fetch links for games you want to download
 plz fetch terraria
 # for more info try
 plz help
