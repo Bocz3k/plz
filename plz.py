@@ -91,13 +91,10 @@ def fix_config():
             f.write('')
         aliases = {}
 
-    if isinstance(cfg['runin'], str):
-        if cfg['runin'].find('/') != -1:
-            logging.warning('Found "/" in runin. Replacing with "\\"')
-            cfg['runin'] = cfg['runin'].replace('/', '\\')
-    else:
-        logging.warning('runin must be a string. Defaulting to ""')
-        cfg['runin'] = ''
+    for alias, path in aliases.items():
+        if path.find('/') != -1:
+            aliases[alias] = path.replace('/', '\\')
+            logging.warning(f'Found "/" in alias {alias}. Replacing with "\\"')
     
     if isinstance(cfg['games_dir'], str):
         if cfg['games_dir'].find('/') != -1:
@@ -108,10 +105,6 @@ def fix_config():
     else:
         logging.warning('games_dir must be a string. Defaulting to ""')
         cfg['games_dir'] = ''
-    
-    if cfg['clear_runin'] != True and cfg['clear_runin'] != False:
-        logging.warning("clear_runin must be a boolean. Defaulting to false")
-        cfg['clear_runin'] = False
     
     if isinstance(cfg['fetch_sites'], list):
         for site in cfg['fetch_sites']:
@@ -132,10 +125,6 @@ def save_config():
     logging.debug("Saving config")
     with open(tl.get_dir() + '\\..\\config.toml', 'w') as f:
         toml = tomlkit.document()
-        toml.add(tomlkit.comment('Directory to run the game in | default: "" (make it "" for current working directory)'))
-        toml.add('runin', cfg['runin'])
-        toml.add(tomlkit.comment('Clear the runin folder after the game is run | default: false (true/false)'))
-        toml.add('clear_runin', cfg['clear_runin'])
         toml.add(tomlkit.comment('Directory where the game folders are located | default: "" (if it\'s empty plz alias autoadd won\'t work)'))
         toml.add('games_dir', cfg['games_dir'])
         toml.add(tomlkit.comment('Logging level | default: WARNING (DEBUG/INFO/WARNING/ERROR/NONE)'))
@@ -154,11 +143,10 @@ def save_aliases():
 
 
 def run(alias: str):
+    idx = aliases[alias].rfind('\\')
+    os.chdir(aliases[alias][:idx])
     try:
         os.system(f'"{aliases[alias]}"')
-        if cfg['clear_runin']:
-            try: shutil.rmtree(cfg['runin'])
-            except PermissionError: logging.debug('Could not delete runin folder due to permission error')
     except KeyError:
         return f'No alias found named "{alias}"'
 
@@ -356,11 +344,6 @@ def main():
         SubCmd("remove", sub_alias_remove, [ArgType(str, options=aliases.keys())]),
         SubCmd("autoadd", sub_alias_autoadd),
     ]))
-    try:
-        os.chdir(runin) if (runin := cfg['runin']) else 0
-    except FileNotFoundError:
-        logging.error(f'Invalid runin path: {runin}')
-        return
     cli.run(sys.argv, helpfunc, check_for_updates)
 
 
