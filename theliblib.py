@@ -43,7 +43,7 @@ def get_dir():
         raise NotImplementedError("Function is not supported on " + platform())
 
 
-def cinput(prompt: str, requested_type: type = str, default=''):
+def cinput(prompt: str, requested_type: type = str, default: object = '', require_nondefault: bool = False, options: list[object] = None) -> object | None:
     """
     Asks user with the `prompt`, and if `requested_type` is not none, tries to convert the user's
     input to the `requested_type`\n
@@ -53,12 +53,20 @@ def cinput(prompt: str, requested_type: type = str, default=''):
         try:
             user_input = input(prompt)
             if user_input == '':
-                return default
+                if not require_nondefault:
+                    return default
+                else:
+                    print("This field is required")
+                    continue
             if not requested_type is None:
                 user_input = requested_type(user_input)
+            if not options is None:
+                if user_input not in options:
+                    print("Wrong option (Options: " + mass_replace(str(options), ['[', ']', "'", '"'], '') + ")")
+                    continue
             break
-        except ValueError:
-            return None
+        except (ValueError, TypeError):
+            print("Wrong type")
     return user_input
 
 

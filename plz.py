@@ -4,9 +4,8 @@ import theliblib as tl
 import sys
 import random
 import os
-import shutil
 import requests
-import tomlkit
+import toml
 import time
 import logging
 
@@ -48,17 +47,52 @@ Usage: plz help - Shows this menu.
 """
 
 
+def fix_file(path: str):
+    try:
+        with open(f'{tl.get_dir()}\\..\\{path}.toml') as f:
+            result = toml.load(f)
+    except FileNotFoundError:
+        logging.warning(f'No {path} file found. Creating one')
+        with open(f'{tl.get_dir()}\\..\\{path}.toml', 'w') as f:
+            f.write('')
+        with open(f'{tl.get_dir()}\\..\\{path}.toml') as f:
+            result = toml.load(f)
+    except toml.TomlDecodeError:
+        logging.warning(f'{path} file is corrupted')
+        overwrite = tl.cinput("Do you want to overwrite it with nothing? (y/n) ", default="n", options=["y", "n"])
+        if overwrite == "y":
+            with open(f'{tl.get_dir()}\\..\\{path}.toml', 'w') as f:
+                f.write('')
+            with open(f'{tl.get_dir()}\\..\\{path}.toml') as f:
+                result = toml.load(f)
+        else:
+            return None
+    return result
+
+
 def fix_config():
-    global cfg, aliases
+    # TODO: Add warning when alias' path doesn't exist
+    # TODO: Continue switching to toml instead of tomlkit
+    global cfg, aliases, autoadd_ignore
     try:
         with open(tl.get_dir() + '\\..\\config.toml') as f:
-            cfg = tomlkit.load(f)
+            cfg = toml.load(f)
     except FileNotFoundError:
         print('WARNING: No config file found. Creating one')
-        cfg = {'runin': "", 'clear_runin': False, 'games_dir': "", 'log_level': "WARNING", 'fetch_sites': [], 'info_site': "game3rb"}
+        cfg = {'games_dir': "", 'log_level': "WARNING", 'fetch_sites': [], 'info_site': "game3rb"}
         save_config()
         main()
         return True
+    except toml.TomlDecodeError:
+        print('WARNING: Config file is corrupted')
+        overwrite = tl.cinput("Do you want to overwrite it with nothing? (y/n) ", default="n", options=["y", "n"])
+        if overwrite == "y":
+            with open(f'{tl.get_dir()}\\..\\{path}.toml', 'w') as f:
+                f.write('')
+            with open(f'{tl.get_dir()}\\..\\{path}.toml') as f:
+                cfg = toml.load(f)
+        else:
+            return True
     
     if (
         cfg['log_level'] != 'DEBUG' and
@@ -71,30 +105,31 @@ def fix_config():
         cfg['log_level'] = 'WARNING'
 
     if cfg['log_level'] == "NONE":
-        print("Logging disabled")
         logging.disable()
     else:
         if cfg['log_level'] == "DEBUG":
             logging.basicConfig(level=logging.DEBUG,
                                 format='%(relativeCreated)d: %(funcName)s | %(levelname)s: %(message)s')
-            logging.debug("Logging enabled")
         else:
             logging.basicConfig(level=eval("logging." + cfg['log_level'], globals()),
                                 format='%(relativeCreated)d | %(levelname)s: %(message)s')
 
-    try:
-        with open(tl.get_dir() + '\\..\\aliases.toml') as f:
-            aliases = tomlkit.load(f)
-    except FileNotFoundError:
-        logging.warning('No aliases file found. Creating one')
-        with open(tl.get_dir() + '\\..\\aliases.toml', 'w') as f:
-            f.write('')
-        aliases = {}
+    aliases = fix_file("aliases")
+    if aliases is None:
+        return True
+    autoadd_ignore = fix_file("autoadd-ignore")
+    if autoadd_ignore is None:
+        return True
 
     for alias, path in aliases.items():
         if path.find('/') != -1:
             aliases[alias] = path.replace('/', '\\')
             logging.warning(f'Found "/" in alias {alias}. Replacing with "\\"')
+
+    for i, path in enumerate(autoadd_ignore):
+        if path.find('/') != -1:
+            autoadd_ignore[i] = path.replace('/', '\\')
+            logging.warning(f'Found "/" in autoadd-ignore. Replacing with "\\"')
     
     if isinstance(cfg['games_dir'], str):
         if cfg['games_dir'].find('/') != -1:
@@ -118,28 +153,20 @@ def fix_config():
     if cfg['info_site'] != "game3rb" and cfg['info_site'] != "steamrip":
         logging.warning(f'info_site must be "game3rb" or "steamrip". Defaulting to "game3rb"')
         cfg['info_site'] = "game3rb"
+    save_aliases()
     save_config()
 
 
 def save_config():
     logging.debug("Saving config")
     with open(tl.get_dir() + '\\..\\config.toml', 'w') as f:
-        toml = tomlkit.document()
-        toml.add(tomlkit.comment('Directory where the game folders are located | default: "" (if it\'s empty plz alias autoadd won\'t work)'))
-        toml.add('games_dir', cfg['games_dir'])
-        toml.add(tomlkit.comment('Logging level | default: WARNING (DEBUG/INFO/WARNING/ERROR/NONE)'))
-        toml.add('log_level', cfg['log_level'])
-        toml.add(tomlkit.comment('Sites to fetch game info from | default: [] (game3rb, steamrip)'))
-        toml.add('fetch_sites', cfg['fetch_sites'])
-        toml.add(tomlkit.comment('Game info site | default: game3rb (game3rb, steamrip)'))
-        toml.add('info_site', cfg['info_site'])
-        tomlkit.dump(toml, f)
+        toml.dump(cfg, f)
 
 
 def save_aliases():
     logging.info('Saving aliases')
     with open(tl.get_dir() + '\\..\\aliases.toml', 'w') as f:
-        tomlkit.dump(aliases, f)
+        toml.dump(aliases, f)
 
 
 def run(alias: str):
@@ -163,8 +190,11 @@ def sub_alias_list():
 
 
 def sub_alias_add(alias: str, point: str):
-    aliases.update({alias: point})
-    save_aliases()
+    if alias in aliases.keys():
+        overwrite = tl.cinput(f'Alias {alias} already exists. Overwrite? (y/n): ', default='n', options=['y', 'n'])
+        if overwrite == 'y':
+            aliases.update({alias: point})
+            save_aliases()
 
 
 def sub_alias_remove(alias: str):
@@ -182,33 +212,16 @@ def recursive_search(path: str, folder_path: str):
         elif isdir:
             folders.append(os.path.join(folder_path, file))
     
-    for executable in executables:
-        if os.path.join(folder_path, executable) in aliases.values():
-            logging.debug(f'Skipping {path} because it is already in the aliases list')
-            return
-    
     if executables:
-        if len(executables) > 1:
-            def validate_int(string: str) -> int:
-                try:
-                    strint = int(string)
-                    if strint > 0 and strint <= len(executables):
-                        return strint
-                    raise TypeError
-                except (ValueError, TypeError):
-                    raise TypeError
-
-            for i, executable in enumerate(executables, start=1):
-                print(f"[{i}]: {executable}")
-            user_input = tl.cinput("Which executable should be used? (enter to skip)", validate_int, "skip")
-            if user_input == 'skip':
-                return
-            executable_file = executables[user_input - 1]
-        else:
-            executable_file = executables[0]
-        name = input(f'Alias name for {executable_file} (enter to skip): ')
-        if name:
-            sub_alias_add(name, os.path.join(folder_path, executable_file))
+        for executable_file in executables:
+            if not os.path.join(folder_path, executable_file) in aliases.values():
+                name = input(f'Alias name for {executable_file} (enter to skip): ')
+                if name:
+                    sub_alias_add(name, os.path.join(folder_path, executable_file))
+                else:
+                    autoadd_ignore['ignore'].append(os.path.join(folder_path, executable_file))
+                    with open(f'{tl.get_dir()}\\..\\autoadd-ignore.toml', 'w') as f:
+                        toml.dump(autoadd_ignore, f)
     else:
         if folders:
             logging.info(f"No executables found in {path}, going into subfolders")
