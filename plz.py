@@ -214,7 +214,8 @@ def recursive_search(path: str, folder_path: str):
     
     if executables:
         for executable_file in executables:
-            if not os.path.join(folder_path, executable_file) in aliases.values():
+            full_path = os.path.join(folder_path, executable_file)
+            if not full_path in autoadd_ignore['ignore'] and not full_path in aliases.values():
                 name = input(f'Alias name for {executable_file} (enter to skip): ')
                 if name:
                     sub_alias_add(name, os.path.join(folder_path, executable_file))
