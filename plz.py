@@ -10,7 +10,7 @@ import time
 import logging
 
 
-VERSION = 'v0.1.1-beta'
+VERSION = 'v0.1.2-beta'
 EXECUTABLE_BLACKLIST = [
     "unins000.exe",
     "UnityCrashHandler64.exe",
