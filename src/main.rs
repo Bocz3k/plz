@@ -1,7 +1,7 @@
-use titlecase::titlecase;
 use clap::{Arg, Command, ArgAction};
 use reqwest::blocking::Client;
 use scraper::{Html, Selector};
+use serde_derive::Serialize;
 use std::time::Instant;
 use rand::seq::SliceRandom;
 use serde_derive::Deserialize;
@@ -14,12 +14,14 @@ use std::io;
 const EXECUTABLE_BLACKLIST: [&str; 3] = ["unins000.exe", "UnityCrashHandler64.exe", "UnityCrashHandler32.exe"];
 
 #[derive(Deserialize)]
+#[derive(Serialize)]
 struct Config {
     games_dir: String,
     autoadd_ignore: Vec<String>
 }
 
 fn read_file<T: for<'de> serde::Deserialize<'de>>(filename: &str, default_content: &str) -> T {
+    // TODO: warn about not existing keys?
     let contents = match fs::read_to_string(filename) {
         Ok(c) => c,
         Err(_) => {
@@ -39,7 +41,13 @@ fn read_file<T: for<'de> serde::Deserialize<'de>>(filename: &str, default_conten
 }
 
 
-fn fetch_game_info(name: &str) -> Option<(String, String, String, Vec<String>)> {
+fn save_file<T: serde::Serialize>(filename: &str, data: T) {
+    let contents = toml::to_string(&data).unwrap();
+    let _ = fs::write(filename, contents);
+}
+
+
+fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
     let perf = Instant::now();
     let client = Client::new();
 
@@ -54,35 +62,13 @@ fn fetch_game_info(name: &str) -> Option<(String, String, String, Vec<String>)> 
     }
 
     let soup = Html::parse_document(&res.text().unwrap());
-    let game_name = soup
+    let title = soup
         .select(&Selector::parse("h1.post-title").unwrap())
         .next()?
         .text()
         .collect::<String>()
-        .trim_start_matches("Game:")
-        .trim()
-        .to_lowercase();
-
-    let version;
-    let mut game_name = game_name.clone();
-    if game_name.contains(name) {
-        version = game_name.replace(name, "").replace("+ online", "").trim().to_string();
-        game_name = name.to_string();
-    } else {
-        println!("Game name not found");
-        return None;
-    }
-
-    let size = soup
-        .select(&Selector::parse("strong").unwrap())
-        .next()?
-        .text()
-        .collect::<String>()
-        .replace("RELEASE", "")
-        .replace("SIZE", "Size:")
-        .replace("::", ":")
-        .trim()
-        .to_string();
+        .replace("Download ", "")
+        .replace(" + OnLine", "");
 
     let item = soup.select(&Selector::parse("a#download-link").unwrap()).next()?;
     let item_href = item.value().attr("href")?;
@@ -96,18 +82,31 @@ fn fetch_game_info(name: &str) -> Option<(String, String, String, Vec<String>)> 
     let links = soup.select(selected);
     let mut items = Vec::new();
     for link in links {
-        // TODO: Find a better way to do this, hosts are not correctly named
         if let Some(host) = link.select(&Selector::parse("a").unwrap()).next().and_then(|a| a.value().attr("href")) {
-            let idx = host.find("://").map(|i| i + 3).unwrap_or(0);
-            let idx = idx + if host[idx..].starts_with("www.") { 4 } else { 0 };
-            let slash = host[idx..].find('/').unwrap_or_else(|| host.len());
-            let name = titlecase(host[idx..slash].trim_end_matches('.'));
+            let mut idx = host.find("://").unwrap() + 3;
+            if host[idx..].starts_with("www.") {
+                idx += 4;
+            }
+            let dot = host.find('.').unwrap();
+            let name = titlecase(&host[idx..dot]);
             items.push(format!("{}: {}", name, host));
         }
     }
 
-    println!("Fetched Game3rb for {} in {:.2}s", name, perf.elapsed().as_secs_f64());
-    Some((version, size, game_name, items))
+    println!("Fetched Game3rb for {} in {:.2}s\n", name, perf.elapsed().as_secs_f64());
+    Some((title, items))
+}
+
+
+fn titlecase(string: &str) -> String {
+    let mut char_list: Vec<char> = string.chars().collect();
+    for char in char_list.iter_mut() {
+        if char.is_alphabetic() {
+            *char = char.to_ascii_uppercase();
+            break;
+        }
+    }
+    char_list.into_iter().collect()
 }
 
 
@@ -183,14 +182,24 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
         }
     }
 
+    save_file("config.toml", &config);
+    save_file("aliases.toml", aliases);
     Ok(())
 }
 
 
+fn fix_config(config: &mut Config) {
+    if config.games_dir.is_empty() {
+        eprintln!("games_dir is empty, please set it first. plz alias autoadd won't work");
+    }
+}
+
+
 fn main() {
-    // TODO: Add a function to check if the config file is corrupted, and fix if it is.
     let mut config: Config = read_file("config.toml", "games_dir = \"\"\nautoadd_ignore = []\n");
     let mut aliases: HashMap<String, String> = read_file("aliases.toml", "");
+
+    fix_config(&mut config);
 
     let matches = Command::new("plz")
         .about("plz is an alias manager to help you manage your games.")
@@ -312,10 +321,8 @@ fn main() {
         }
         Some(("fetch", matches)) => {
             let game: &String = matches.get_one("game").unwrap();
-            if let Some((version, size, game_name, items)) = fetch_game_info(game) {
-                println!("Game Name: {}", game_name);
-                println!("Version: {}", version);
-                println!("Size: {}", size);
+            if let Some((title, items)) = fetch_game_info(game) {
+                println!("{}", title);
                 println!("Download Links:");
                 for item in items {
                     println!("{}", item);
