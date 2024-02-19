@@ -21,11 +21,10 @@ struct Config {
 }
 
 fn read_file<T: for<'de> serde::Deserialize<'de>>(filename: &str, default_content: &str) -> T {
-    // TODO: warn about not existing keys?
     let contents = match fs::read_to_string(filename) {
-        Ok(c) => c,
+        Ok(x) => x,
         Err(_) => {
-            eprintln!("Could not read file `{}`, creating new one", filename.replace(".toml", ""));
+            eprintln!("Could find file `{}`, creating new one", filename);
             let _ = fs::write(filename, default_content);
             default_content.to_string()
         }
@@ -33,8 +32,8 @@ fn read_file<T: for<'de> serde::Deserialize<'de>>(filename: &str, default_conten
 
     match toml::from_str(&contents) {
         Ok(x) => x,
-        Err(_) => {
-            eprintln!("Unable to load data from `{}`", filename);
+        Err(err) => {
+            eprintln!("Unable to load data from `{}`. {}", filename, err);
             exit(1);
         }
     }
@@ -43,7 +42,10 @@ fn read_file<T: for<'de> serde::Deserialize<'de>>(filename: &str, default_conten
 
 fn save_file<T: serde::Serialize>(filename: &str, data: T) {
     let contents = toml::to_string(&data).unwrap();
-    let _ = fs::write(filename, contents);
+    match fs::write(filename, contents) {
+        Ok(_) => {},
+        Err(err) => eprintln!("Failed to save file `{}`. {}", filename, err)
+    }
 }
 
 
@@ -93,7 +95,7 @@ fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
         }
     }
 
-    println!("Fetched Game3rb for {} in {:.2}s\n", name, perf.elapsed().as_secs_f64());
+    println!("Fetched Game3rb for `{}` in {:.2}s\n", name, perf.elapsed().as_secs_f64());
     Some((title, items))
 }
 
@@ -189,9 +191,21 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
 
 
 fn fix_config(config: &mut Config) {
+    // TODO: check for non-existent games_dir & aliases paths
     if config.games_dir.is_empty() {
         eprintln!("games_dir is empty, please set it first. plz alias autoadd won't work");
     }
+}
+
+
+fn remove_after_slash(string: &str) -> &str {
+    let char_list: Vec<char> = string.chars().collect();
+    for (i, char) in char_list.iter().enumerate().rev() {
+        if char == &'/' {
+            return &string[..i + 1];
+        }
+    }
+    string
 }
 
 
@@ -256,7 +270,7 @@ fn main() {
                 )
                 .subcommand(
                     Command::new("autoadd")
-                        .about("Automatically add aliases from games directory")
+                        .about("Automatically add aliases from games_dir")
                 )
         )
         .subcommand(
@@ -276,10 +290,17 @@ fn main() {
             let alias: &String = matches.get_one("alias").unwrap();
             match aliases.get(alias) {
                 Some(path) => {
+                    match std::env::set_current_dir(remove_after_slash(path)) {
+                        Ok(_) => {}
+                        Err(err) => {
+                            eprintln!("Path: {} | {}", remove_after_slash(path), err);
+                            exit(1);
+                        }
+                    }
                     if let Err(err) = std::process::Command::new(path).status() {
                         eprintln!("Failed to run alias `{}`: {}", alias, err);
                     }
-                }
+                },
                 None => eprintln!("Alias `{}` not found", alias)
             }
         }
@@ -299,10 +320,12 @@ fn main() {
                     let alias: &String = matches.get_one("alias").unwrap();
                     let path: &String = matches.get_one("path").unwrap();
                     aliases.insert(alias.to_string(), path.to_string());
+                    save_file("aliases.toml", aliases);
                 }
                 Some(("remove", matches)) => {
                     let alias: &String = matches.get_one("alias").unwrap();
                     aliases.remove(alias);
+                    save_file("aliases.toml", aliases);
                 }
                 Some(("list", _)) => {
                     println!("Aliases:");
@@ -312,7 +335,10 @@ fn main() {
                 }
                 Some(("autoadd", _)) => {
                     match autoadd(&mut aliases, &mut config) {
-                        Ok(_) => (),
+                        Ok(_) => {
+                            save_file("config.toml", config);
+                            save_file("aliases.toml", aliases);
+                        },
                         Err(err) => eprintln!("{}", err)
                     }
                 }
