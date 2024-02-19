@@ -10,6 +10,7 @@ use std::process::exit;
 use toml;
 use std::fs;
 use std::io;
+use std::path::Path;
 
 const EXECUTABLE_BLACKLIST: [&str; 3] = ["unins000.exe", "UnityCrashHandler64.exe", "UnityCrashHandler32.exe"];
 
@@ -190,10 +191,20 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
 }
 
 
-fn fix_config(config: &mut Config) {
-    // TODO: check for non-existent games_dir & aliases paths
-    if config.games_dir.is_empty() {
-        eprintln!("games_dir is empty, please set it first. plz alias autoadd won't work");
+fn fix_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
+    let path = Path::new(&config.games_dir);
+    if !path.exists() {
+        eprintln!("games_dir `{}` does not exist, please create or change it.", config.games_dir);
+    } else if !path.is_dir() {
+        eprintln!("games_dir `{}` is not a directory, please change it.", config.games_dir);
+    }
+
+    for path in aliases {
+        if !Path::new(path.1).exists() {
+            eprintln!("Alias `{}` points to `{}` which does not exist.", path.0, path.1);
+        } else if !Path::new(path.1).is_file() {
+            eprintln!("Alias `{}` points to `{}` which is not a file.", path.0, path.1);
+        }
     }
 }
 
@@ -213,7 +224,7 @@ fn main() {
     let mut config: Config = read_file("config.toml", "games_dir = \"\"\nautoadd_ignore = []\n");
     let mut aliases: HashMap<String, String> = read_file("aliases.toml", "");
 
-    fix_config(&mut config);
+    fix_config(&mut config, &mut aliases);
 
     let matches = Command::new("plz")
         .about("plz is an alias manager to help you manage your games.")
