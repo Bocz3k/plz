@@ -21,13 +21,14 @@ struct Config {
     autoadd_ignore: Vec<String>
 }
 
-fn read_file<T: for<'de> serde::Deserialize<'de>>(filename: &str, default_content: &str) -> T {
+fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &str, default_content: &str) -> T {
     let contents = match fs::read_to_string(filename) {
         Ok(x) => x,
         Err(_) => {
             eprintln!("Could find file `{}`, creating new one", filename);
-            let _ = fs::write(filename, default_content);
-            default_content.to_string()
+            let data: T = toml::from_str(default_content).unwrap();
+            save_file(filename, data);
+            default_content.to_owned()
         }
     };
 
@@ -43,7 +44,8 @@ fn read_file<T: for<'de> serde::Deserialize<'de>>(filename: &str, default_conten
 
 fn save_file<T: serde::Serialize>(filename: &str, data: T) {
     let contents = toml::to_string(&data).unwrap();
-    match fs::write(filename, contents) {
+    let exe = std::env::current_exe().unwrap().display().to_string();
+    match fs::write(remove_after_slash(&exe).to_owned() + filename, contents) {
         Ok(_) => {},
         Err(err) => eprintln!("Failed to save file `{}`. {}", filename, err)
     }
@@ -186,7 +188,7 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
     }
 
     save_file("config.toml", &config);
-    save_file("aliases.toml", aliases);
+    save_file("aliases.toml", &aliases);
     Ok(())
 }
 
@@ -210,9 +212,13 @@ fn fix_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
 
 
 fn remove_after_slash(string: &str) -> &str {
+    let mut character = &'/';
+    if string.find('\\') != None {
+        character = &'\\';
+    }
     let char_list: Vec<char> = string.chars().collect();
     for (i, char) in char_list.iter().enumerate().rev() {
-        if char == &'/' {
+        if char == character {
             return &string[..i + 1];
         }
     }
