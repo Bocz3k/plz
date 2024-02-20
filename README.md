@@ -2,8 +2,7 @@
 plz is an alias manager to help you manage your games.
 
 ## Installation
-Download the [latest release](https://github.com/Bocz3k/plz/releases/latest). Extract it
-and run `plz.exe` from your shell
+Download the [latest release](https://github.com/Bocz3k/plz/releases/latest). Run `plz.exe` from your shell
 ```
 ./plz random
 ```

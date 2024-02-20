@@ -139,14 +139,16 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
         for executable_file in executables {
             let file_path = executable_file.display().to_string();
             let filename = executable_file.file_name().unwrap().to_string_lossy();
-            println!("Alias name for {} (enter to skip): ", filename);
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-            let name = input.trim();
-            if !name.is_empty() {
-                aliases.insert(name.to_string(), file_path);
-            } else {
-                config.autoadd_ignore.push(file_path);
+            if !config.autoadd_ignore.contains(&file_path) && !aliases.values().any(|val| val == &file_path) {
+                println!("Alias name for {} (enter to skip): ", filename);
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                let name = input.trim();
+                if !name.is_empty() {
+                    aliases.insert(name.to_string(), file_path);
+                } else {
+                    config.autoadd_ignore.push(file_path);
+                }
             }
         }
     } else if !folders.is_empty() {
@@ -177,14 +179,18 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
         if file_path.is_dir() {
             let folder_path = file_path.display().to_string();
             recursive_search(&file_name, &folder_path, aliases, config)?;
-        } else if file_path.is_file() && file_name.ends_with(".exe") {
-            println!("Alias name for {} (enter to skip): ", file_name);
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-            let name = input.trim();
-            if !name.is_empty() {
-                aliases.insert(name.to_string(), file_path.display().to_string());
-            }
+        } else if file_path.is_file() && file_name.ends_with(".exe") &&
+                  !config.autoadd_ignore.contains(&file_path.display().to_string()) &&
+                  !aliases.values().any(|val| val == &file_path.display().to_string()) {
+                println!("Alias name for {} (enter to skip): ", file_name);
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                let name = input.trim();
+                if !name.is_empty() {
+                    aliases.insert(name.to_string(), file_path.display().to_string());
+                } else {
+                    config.autoadd_ignore.push(file_path.display().to_string());
+                }
         }
     }
 
