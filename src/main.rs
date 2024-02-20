@@ -22,7 +22,8 @@ struct Config {
 }
 
 fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &str, default_content: &str) -> T {
-    let contents = match fs::read_to_string(filename) {
+    let exe = std::env::current_exe().unwrap().display().to_string();
+    let contents = match fs::read_to_string(remove_after_slash(&exe).to_owned() + filename) {
         Ok(x) => x,
         Err(_) => {
             eprintln!("Could find file `{}`, creating new one", filename);
