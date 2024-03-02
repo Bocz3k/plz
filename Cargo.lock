@@ -876,7 +876,6 @@ name = "plz"
 version = "0.1.3"
 dependencies = [
  "clap",
- "rand",
  "reqwest",
  "scraper",
  "serde",

@@ -3,7 +3,7 @@ use reqwest::blocking::Client;
 use scraper::{Html, Selector};
 use serde_derive::Serialize;
 use std::time::Instant;
-use rand::seq::SliceRandom;
+use std::time::{SystemTime, UNIX_EPOCH};
 use serde_derive::Deserialize;
 use std::collections::HashMap;
 use std::process::exit;
@@ -329,13 +329,23 @@ fn main() {
             }
         }
         Some(("random", _)) => {
-            let paths_vec: Vec<(&String, &String)> = aliases.iter().collect();
-            if let Some((alias, path)) = paths_vec.choose(&mut rand::thread_rng()) {
-                if let Err(err) = std::process::Command::new(path).status() {
-                    eprintln!("Failed to run alias {}: {}", alias, err);
+            if aliases.len() == 0 {
+                eprintln!("No aliases found");
+                exit(1);
+            }
+            let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let index = current_time % aliases.len() as u64;
+            if let Some((key, value)) = aliases.iter().nth(index as usize) {
+                match std::env::set_current_dir(remove_after_slash(value)) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        eprintln!("Path: {} | {}", remove_after_slash(value), err);
+                        exit(1);
+                    }
                 }
-            } else {
-                println!("No aliases found.");
+                if let Err(err) = std::process::Command::new(value).status() {
+                    eprintln!("Failed to run alias `{}`: {}", key, err);
+                } 
             }
         }
         Some(("alias", matches)) => {
