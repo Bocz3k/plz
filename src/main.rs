@@ -253,7 +253,7 @@ async fn check_for_updates() -> String {
     let res = client.get("https://api.github.com/repos/Bocz3k/plz/releases/latest").send().await;
     if let Ok(res) = res {
         let release: Release = res.json().await.unwrap();
-        if release.tag_name != env!("CARGO_PKG_VERSION") {
+        if release.tag_name != String::from("v") + env!("CARGO_PKG_VERSION") {
             let r = AnsiColor::Red.on_default();
             let bgreen = AnsiColor::BrightGreen.on_default().bold();
             let yellow = AnsiColor::Yellow.on_default().bold();
@@ -449,6 +449,9 @@ async fn main() {
             _ => unreachable!(),
         }
     }
-    let _ = error.unwrap().print();
+    if !execute {
+        let err = error.unwrap();
+        let _ = err.print();
+    }
     println!("{}", update_message);
 }
