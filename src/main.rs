@@ -1,25 +1,32 @@
+use std::time::{SystemTime, Duration, UNIX_EPOCH};
+use serde_derive::{Serialize, Deserialize};
 use clap::{Arg, Command, ArgAction};
-use reqwest::blocking::Client;
 use scraper::{Html, Selector};
-use serde_derive::Serialize;
-use std::time::Instant;
-use std::time::{SystemTime, UNIX_EPOCH};
-use serde_derive::Deserialize;
 use std::collections::HashMap;
+use std::time::Instant;
 use std::process::exit;
-use toml;
+use anstyle::AnsiColor;
+use reqwest::Client;
+use std::path::Path;
+use anstyle::Style;
 use std::fs;
 use std::io;
-use std::path::Path;
+use toml;
 
 const EXECUTABLE_BLACKLIST: [&str; 3] = ["unins000.exe", "UnityCrashHandler64.exe", "UnityCrashHandler32.exe"];
 
-#[derive(Deserialize)]
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct Config {
     games_dir: String,
+    check_for_updates: bool,
     autoadd_ignore: Vec<String>
 }
+
+#[derive(Deserialize)]
+struct Release {
+    tag_name: String
+}
+
 
 fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &str, default_content: &str) -> T {
     let exe = std::env::current_exe().unwrap().display().to_string();
@@ -53,12 +60,12 @@ fn save_file<T: serde::Serialize>(filename: &str, data: T) {
 }
 
 
-fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
+async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
     let perf = Instant::now();
-    let client = Client::new();
+    let client = reqwest::Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
 
     let url = format!("https://game3rb.com/{}", name);
-    let res = match client.get(&url).send() {
+    let res = match client.get(&url).send().await {
         Ok(res) => res,
         Err(_) => return None,
     };
@@ -67,7 +74,7 @@ fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
         return None;
     }
 
-    let soup = Html::parse_document(&res.text().unwrap());
+    let soup = Html::parse_document(&res.text().await.unwrap());
     let title = soup
         .select(&Selector::parse("h1.post-title").unwrap())
         .next()?
@@ -78,13 +85,13 @@ fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
 
     let item = soup.select(&Selector::parse("a#download-link").unwrap()).next()?;
     let item_href = item.value().attr("href")?;
-    let res = match client.get(item_href).send() {
+    let res = match client.get(item_href).send().await {
         Ok(res) => res,
         Err(_) => return None,
     };
 
     let selected = &Selector::parse("ol li").unwrap();
-    let soup = Html::parse_document(&res.text().unwrap());
+    let soup = Html::parse_document(&res.text().await.unwrap());
     let links = soup.select(selected);
     let mut items = Vec::new();
     for link in links {
@@ -201,18 +208,19 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
 
 
 fn fix_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
+    let yellow = AnsiColor::Yellow.on_default().bold();
     let path = Path::new(&config.games_dir);
     if !path.exists() {
-        eprintln!("games_dir `{}` does not exist, please create or change it.", config.games_dir);
+        eprintln!("{yellow}warning:{yellow:#} games_dir `{}` does not exist, please create or change it.", config.games_dir);
     } else if !path.is_dir() {
-        eprintln!("games_dir `{}` is not a directory, please change it.", config.games_dir);
+        eprintln!("{yellow}warning:{yellow:#} games_dir `{}` is not a directory, please change it.", config.games_dir);
     }
 
     for path in aliases {
         if !Path::new(path.1).exists() {
-            eprintln!("Alias `{}` points to `{}` which does not exist.", path.0, path.1);
+            eprintln!("{yellow}warning:{yellow:#} alias `{}` points to `{}` which does not exist.", path.0, path.1);
         } else if !Path::new(path.1).is_file() {
-            eprintln!("Alias `{}` points to `{}` which is not a file.", path.0, path.1);
+            eprintln!("{yellow}warning:{yellow:#} alias `{}` points to `{}` which is not a file.", path.0, path.1);
         }
     }
 }
@@ -233,11 +241,40 @@ fn remove_after_slash(string: &str) -> &str {
 }
 
 
-fn main() {
-    let mut config: Config = read_file("config.toml", "games_dir = \"\"\nautoadd_ignore = []\n");
+fn sort_by_key_length(mut hashmap: HashMap<String, String>) -> Vec<(String, String)> {
+    let mut vec: Vec<(String, String)> = hashmap.drain().collect();
+    vec.sort_by(|(key1, _), (key2, _)| key2.len().cmp(&key1.len()));
+    vec.into_iter().collect()
+}
+
+
+async fn check_for_updates() -> String {
+    let client = Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
+    let res = client.get("https://api.github.com/repos/Bocz3k/plz/releases/latest").send().await;
+    if let Ok(res) = res {
+        let release: Release = res.json().await.unwrap();
+        if release.tag_name != env!("CARGO_PKG_VERSION") {
+            let r = AnsiColor::Red.on_default();
+            let bgreen = AnsiColor::BrightGreen.on_default().bold();
+            let yellow = AnsiColor::Yellow.on_default().bold();
+            return format!("\n{bgreen}New version of plz available:{r:#}\n Current: {yellow}v{}{r:#}\n New version: {bgreen}{}{r:#}", env!("CARGO_PKG_VERSION"), release.tag_name);
+        }
+    }
+    String::new()
+}
+
+
+#[tokio::main]
+async fn main() {
+    let mut config: Config = read_file("config.toml", "games_dir = \"\"\ncheck_for_updates = true\nautoadd_ignore = []\n");
     let mut aliases: HashMap<String, String> = read_file("aliases.toml", "");
 
     fix_config(&mut config, &mut aliases);
+
+    let update_message = match config.check_for_updates {
+        true => check_for_updates().await,
+        false => String::new(),
+    };
 
     let matches = Command::new("plz")
         .about("plz is an alias manager to help you manage your games.")
@@ -307,90 +344,111 @@ fn main() {
                         .action(ArgAction::Set)
                 )
         )
-    .get_matches();
-    
-    match matches.subcommand() {
-        Some(("run", matches)) => {
-            let alias: &String = matches.get_one("alias").unwrap();
-            match aliases.get(alias) {
-                Some(path) => {
-                    match std::env::set_current_dir(remove_after_slash(path)) {
+    .try_get_matches();
+
+    let mut execute = true;
+    let mut error: Option<clap::Error> = None;
+    let mut command: Option<clap::ArgMatches> = None;
+    match matches {
+        Ok(matches) => command = Some(matches),
+        Err(err) => {
+            execute = false;
+            error = Some(err);
+        }
+    };
+
+    if execute {
+        match command.unwrap().subcommand() {
+            Some(("run", matches)) => {
+                let alias: &String = matches.get_one("alias").unwrap();
+                match aliases.get(alias) {
+                    Some(path) => {
+                        match std::env::set_current_dir(remove_after_slash(path)) {
+                            Ok(_) => {}
+                            Err(err) => {
+                                eprintln!("Path: {} | {}", remove_after_slash(path), err);
+                                exit(1);
+                            }
+                        }
+                        if let Err(err) = std::process::Command::new(path).status() {
+                            eprintln!("Failed to run alias `{}`: {}", alias, err);
+                        }
+                    },
+                    None => eprintln!("Alias `{}` not found", alias)
+                }
+            }
+            Some(("random", _)) => {
+                if aliases.len() == 0 {
+                    eprintln!("No aliases found");
+                    exit(1);
+                }
+                let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                let index = current_time % aliases.len() as u64;
+                if let Some((key, value)) = aliases.iter().nth(index as usize) {
+                    match std::env::set_current_dir(remove_after_slash(value)) {
                         Ok(_) => {}
                         Err(err) => {
-                            eprintln!("Path: {} | {}", remove_after_slash(path), err);
+                            eprintln!("Path: {} | {}", remove_after_slash(value), err);
                             exit(1);
                         }
                     }
-                    if let Err(err) = std::process::Command::new(path).status() {
-                        eprintln!("Failed to run alias `{}`: {}", alias, err);
+                    if let Err(err) = std::process::Command::new(value).status() {
+                        eprintln!("Failed to run alias `{}`: {}", key, err);
+                    } 
+                }
+            }
+            Some(("alias", matches)) => {
+                match matches.subcommand() {
+                    Some(("add", matches)) => {
+                        let alias: &String = matches.get_one("alias").unwrap();
+                        let path: &String = matches.get_one("path").unwrap();
+                        aliases.insert(alias.to_string(), path.to_string());
+                        save_file("aliases.toml", aliases);
+                        println!("Added alias `{}`", alias);
                     }
-                },
-                None => eprintln!("Alias `{}` not found", alias)
-            }
-        }
-        Some(("random", _)) => {
-            if aliases.len() == 0 {
-                eprintln!("No aliases found");
-                exit(1);
-            }
-            let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            let index = current_time % aliases.len() as u64;
-            if let Some((key, value)) = aliases.iter().nth(index as usize) {
-                match std::env::set_current_dir(remove_after_slash(value)) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        eprintln!("Path: {} | {}", remove_after_slash(value), err);
-                        exit(1);
+                    Some(("remove", matches)) => {
+                        let alias: &String = matches.get_one("alias").unwrap();
+                        aliases.remove(alias);
+                        save_file("aliases.toml", aliases);
+                        println!("Removed alias `{}`", alias);
                     }
-                }
-                if let Err(err) = std::process::Command::new(value).status() {
-                    eprintln!("Failed to run alias `{}`: {}", key, err);
-                } 
-            }
-        }
-        Some(("alias", matches)) => {
-            match matches.subcommand() {
-                Some(("add", matches)) => {
-                    let alias: &String = matches.get_one("alias").unwrap();
-                    let path: &String = matches.get_one("path").unwrap();
-                    aliases.insert(alias.to_string(), path.to_string());
-                    save_file("aliases.toml", aliases);
-                }
-                Some(("remove", matches)) => {
-                    let alias: &String = matches.get_one("alias").unwrap();
-                    aliases.remove(alias);
-                    save_file("aliases.toml", aliases);
-                }
-                Some(("list", _)) => {
-                    println!("Aliases:");
-                    for (alias, path) in aliases.iter() {
-                        println!("{} -> {}", alias, path);
+                    Some(("list", _)) => {
+                        let sorted = sort_by_key_length(aliases);
+                        let bold = Style::new().bold();
+                        let gray = AnsiColor::BrightBlack.on_default();
+
+                        println!("{bold}Aliases:");
+                        for (alias, path) in sorted.iter() {
+                            println!(" {bold}{}{bold:#} {gray}->{gray:#} {}", alias, path);
+                        }
                     }
-                }
-                Some(("autoadd", _)) => {
-                    match autoadd(&mut aliases, &mut config) {
-                        Ok(_) => {
-                            save_file("config.toml", config);
-                            save_file("aliases.toml", aliases);
-                        },
-                        Err(err) => eprintln!("{}", err)
+                    Some(("autoadd", _)) => {
+                        match autoadd(&mut aliases, &mut config) {
+                            Ok(_) => {
+                                save_file("config.toml", config);
+                                save_file("aliases.toml", aliases);
+                            },
+                            Err(err) => eprintln!("{}", err)
+                        }
                     }
+                    _ => unreachable!(),
                 }
-                _ => unreachable!(),
             }
-        }
-        Some(("fetch", matches)) => {
-            let game: &String = matches.get_one("game").unwrap();
-            if let Some((title, items)) = fetch_game_info(game) {
-                println!("{}", title);
-                println!("Download Links:");
-                for item in items {
-                    println!("{}", item);
+            Some(("fetch", matches)) => {
+                let game: &String = matches.get_one("game").unwrap();
+                if let Some((title, items)) = fetch_game_info(game).await {
+                    println!("{}", title);
+                    println!("Download Links:");
+                    for item in items {
+                        println!("{}", item);
+                    }
+                } else {
+                    println!("Game not found.");
                 }
-            } else {
-                println!("Game not found.");
             }
+            _ => unreachable!(),
         }
-        _ => unreachable!(),
     }
+    let _ = error.unwrap().print();
+    println!("{}", update_message);
 }
