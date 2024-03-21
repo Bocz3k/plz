@@ -29,11 +29,13 @@ struct Release {
 
 
 fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &str, default_content: &str) -> T {
+    let red = AnsiColor::BrightRed.on_default().bold();
+    let error = format!("{red}error:{red:#} ");
     let exe = std::env::current_exe().unwrap().display().to_string();
     let contents = match fs::read_to_string(remove_after_slash(&exe).to_owned() + filename) {
         Ok(x) => x,
         Err(_) => {
-            eprintln!("Could find file `{}`, creating new one", filename);
+            eprintln!("{error}Could find file `{}`, creating new one", filename);
             let data: T = toml::from_str(default_content).unwrap();
             save_file(filename, data);
             default_content.to_owned()
@@ -43,7 +45,7 @@ fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &
     match toml::from_str(&contents) {
         Ok(x) => x,
         Err(err) => {
-            eprintln!("Unable to load data from `{}`. {}", filename, err);
+            eprintln!("{error}Unable to load data from `{}`. {}", filename, err);
             exit(1);
         }
     }
@@ -51,16 +53,21 @@ fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &
 
 
 fn save_file<T: serde::Serialize>(filename: &str, data: T) {
+    let red = AnsiColor::BrightRed.on_default().bold();
+    let error = format!("{red}error:{red:#} ");
     let contents = toml::to_string(&data).unwrap();
     let exe = std::env::current_exe().unwrap().display().to_string();
     match fs::write(remove_after_slash(&exe).to_owned() + filename, contents) {
         Ok(_) => {},
-        Err(err) => eprintln!("Failed to save file `{}`. {}", filename, err)
+        Err(err) => eprintln!("{error}Failed to save file `{}`. {}", filename, err)
     }
 }
 
 
 async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
+    let yellow = AnsiColor::BrightYellow.on_default();
+    let green = AnsiColor::BrightGreen.on_default().bold();
+    let success = format!("{green}success:{green:#} ");
     let perf = Instant::now();
     let client = reqwest::Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
 
@@ -100,13 +107,13 @@ async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
             if host[idx..].starts_with("www.") {
                 idx += 4;
             }
-            let dot = host.find('.').unwrap();
+            let dot = host[idx..].find('.').unwrap() + idx;
             let name = titlecase(&host[idx..dot]);
             items.push(format!("{}: {}", name, host));
         }
     }
 
-    println!("Fetched Game3rb for `{}` in {:.2}s\n", name, perf.elapsed().as_secs_f64());
+    println!("{success}Fetched Game3rb for `{yellow}{}{yellow:#}` in {yellow}{:.2}{yellow:#}s\n", name, perf.elapsed().as_secs_f64());
     Some((title, items))
 }
 
@@ -124,6 +131,7 @@ fn titlecase(string: &str) -> String {
 
 
 fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Result<()> {
+    let yellow = AnsiColor::BrightYellow.on_default();
     let mut executables = Vec::new();
     let mut folders = Vec::new();
 
@@ -147,7 +155,7 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
             let file_path = executable_file.display().to_string();
             let filename = executable_file.file_name().unwrap().to_string_lossy();
             if !config.autoadd_ignore.contains(&file_path) && !aliases.values().any(|val| val == &file_path) {
-                println!("Alias name for {} (enter to skip): ", filename);
+                println!("Alias name for `{yellow}{}{yellow:#}` (enter to skip): ", filename);
                 let mut input = String::new();
                 io::stdin().read_line(&mut input)?;
                 let name = input.trim();
@@ -159,7 +167,7 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
             }
         }
     } else if !folders.is_empty() {
-        println!("No executables found in {}, going into subfolders", path);
+        println!("No executables found in `{yellow}{}{yellow:#}`, going into subfolders", path);
         for folder in folders {
             let folder_path = folder.display().to_string();
             recursive_search(&folder_path, &folder_path, aliases, config)?;
@@ -171,6 +179,7 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
 
 
 fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Result<()> {
+    let yellow = AnsiColor::BrightYellow.on_default();
     if config.games_dir.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
@@ -189,7 +198,7 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
         } else if file_path.is_file() && file_name.ends_with(".exe") &&
                   !config.autoadd_ignore.contains(&file_path.display().to_string()) &&
                   !aliases.values().any(|val| val == &file_path.display().to_string()) {
-                println!("Alias name for {} (enter to skip): ", file_name);
+                println!("Alias name for `{yellow}{}{yellow:#}` (enter to skip): ", file_name);
                 let mut input = String::new();
                 io::stdin().read_line(&mut input)?;
                 let name = input.trim();
@@ -208,19 +217,21 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
 
 
 fn fix_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
-    let yellow = AnsiColor::Yellow.on_default().bold();
+    let yellowb = AnsiColor::BrightYellow.on_default().bold();
+    let yellow = AnsiColor::BrightYellow.on_default();
+    let warning = format!("{yellowb}warning:{yellowb:#} ");
     let path = Path::new(&config.games_dir);
     if !path.exists() {
-        eprintln!("{yellow}warning:{yellow:#} games_dir `{}` does not exist, please create or change it.", config.games_dir);
+        eprintln!("{warning}games_dir `{yellow}{}{yellow:#}` does not exist, please create or change it.", config.games_dir);
     } else if !path.is_dir() {
-        eprintln!("{yellow}warning:{yellow:#} games_dir `{}` is not a directory, please change it.", config.games_dir);
+        eprintln!("{warning}games_dir `{yellow}{}{yellow:#}` is not a directory, please change it.", config.games_dir);
     }
 
     for path in aliases {
         if !Path::new(path.1).exists() {
-            eprintln!("{yellow}warning:{yellow:#} alias `{}` points to `{}` which does not exist.", path.0, path.1);
+            eprintln!("{warning}Alias `{yellow}{}{yellow:#}` points to `{yellow}{}{yellow:#}` which does not exist.", path.0, path.1);
         } else if !Path::new(path.1).is_file() {
-            eprintln!("{yellow}warning:{yellow:#} alias `{}` points to `{}` which is not a file.", path.0, path.1);
+            eprintln!("{warning}Alias `{yellow}{}{yellow:#}` points to `{yellow}{}{yellow:#}` which is not a file.", path.0, path.1);
         }
     }
 }
@@ -254,10 +265,9 @@ async fn check_for_updates() -> String {
     if let Ok(res) = res {
         let release: Release = res.json().await.unwrap();
         if release.tag_name != String::from("v") + env!("CARGO_PKG_VERSION") {
-            let r = AnsiColor::Red.on_default();
-            let bgreen = AnsiColor::BrightGreen.on_default().bold();
-            let yellow = AnsiColor::Yellow.on_default().bold();
-            return format!("\n{bgreen}New version of plz available:{r:#}\n Current: {yellow}v{}{r:#}\n New version: {bgreen}{}{r:#}", env!("CARGO_PKG_VERSION"), release.tag_name);
+            let green = AnsiColor::BrightGreen.on_default().bold();
+            let yellow = AnsiColor::BrightYellow.on_default().bold();
+            return format!("\n{green}New version of plz available:{green:#}\n Current: {yellow}v{}{yellow:#}\n New version: {green}{}{green:#}", env!("CARGO_PKG_VERSION"), release.tag_name);
         }
     }
     String::new()
@@ -358,6 +368,12 @@ async fn main() {
     };
 
     if execute {
+        let red = AnsiColor::BrightRed.on_default().bold();
+        let error = format!("{red}error:{red:#} ");
+        let green = AnsiColor::BrightGreen.on_default().bold();
+        let success = format!("{green}success:{green:#} ");
+        let yellow = AnsiColor::BrightYellow.on_default();
+        let bold = Style::new().bold();
         match command.unwrap().subcommand() {
             Some(("run", matches)) => {
                 let alias: &String = matches.get_one("alias").unwrap();
@@ -366,20 +382,20 @@ async fn main() {
                         match std::env::set_current_dir(remove_after_slash(path)) {
                             Ok(_) => {}
                             Err(err) => {
-                                eprintln!("Path: {} | {}", remove_after_slash(path), err);
+                                eprintln!("{error}Path: {} | {}", remove_after_slash(path), err);
                                 exit(1);
                             }
                         }
                         if let Err(err) = std::process::Command::new(path).status() {
-                            eprintln!("Failed to run alias `{}`: {}", alias, err);
+                            eprintln!("{error}Failed to run alias `{yellow}{}{yellow:#}`: {}", alias, err);
                         }
                     },
-                    None => eprintln!("Alias `{}` not found", alias)
+                    None => eprintln!("{error}Alias `{yellow}{}{yellow:#}` not found", alias)
                 }
             }
             Some(("random", _)) => {
                 if aliases.len() == 0 {
-                    eprintln!("No aliases found");
+                    eprintln!("{error}No aliases found");
                     exit(1);
                 }
                 let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -388,12 +404,12 @@ async fn main() {
                     match std::env::set_current_dir(remove_after_slash(value)) {
                         Ok(_) => {}
                         Err(err) => {
-                            eprintln!("Path: {} | {}", remove_after_slash(value), err);
+                            eprintln!("{error}Path: {} | {}", remove_after_slash(value), err);
                             exit(1);
                         }
                     }
                     if let Err(err) = std::process::Command::new(value).status() {
-                        eprintln!("Failed to run alias `{}`: {}", key, err);
+                        eprintln!("{error}Failed to run alias `{yellow}{}{yellow:#}`: {}", key, err);
                     } 
                 }
             }
@@ -404,17 +420,17 @@ async fn main() {
                         let path: &String = matches.get_one("path").unwrap();
                         aliases.insert(alias.to_string(), path.to_string());
                         save_file("aliases.toml", aliases);
-                        println!("Added alias `{}`", alias);
+                        println!("{success}Added alias `{yellow}{}{yellow:#}`", alias);
                     }
                     Some(("remove", matches)) => {
                         let alias: &String = matches.get_one("alias").unwrap();
                         aliases.remove(alias);
                         save_file("aliases.toml", aliases);
-                        println!("Removed alias `{}`", alias);
+                        println!("{success}Removed alias `{yellow}{}{yellow:#}`", alias);
                     }
                     Some(("list", _)) => {
                         let sorted = sort_by_key_length(aliases);
-                        let bold = Style::new().bold();
+                        
                         let gray = AnsiColor::BrightBlack.on_default();
 
                         println!("{bold}Aliases:");
@@ -428,7 +444,7 @@ async fn main() {
                                 save_file("config.toml", config);
                                 save_file("aliases.toml", aliases);
                             },
-                            Err(err) => eprintln!("{}", err)
+                            Err(err) => eprintln!("{error}{}", err)
                         }
                     }
                     _ => unreachable!(),
@@ -437,13 +453,14 @@ async fn main() {
             Some(("fetch", matches)) => {
                 let game: &String = matches.get_one("game").unwrap();
                 if let Some((title, items)) = fetch_game_info(game).await {
-                    println!("{}", title);
-                    println!("Download Links:");
+                    let gray = AnsiColor::BrightBlack.on_default();
+                    println!("{bold}{}", title);
+                    println!("Download Links:{bold:#}");
                     for item in items {
-                        println!("{}", item);
+                        println!("{gray}-{gray:#} {}", item);
                     }
                 } else {
-                    println!("Game not found.");
+                    println!("{error}Game not found.");
                 }
             }
             _ => unreachable!(),
