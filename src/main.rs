@@ -424,9 +424,13 @@ async fn main() {
                     }
                     Some(("remove", matches)) => {
                         let alias: &String = matches.get_one("alias").unwrap();
-                        aliases.remove(alias);
-                        save_file("aliases.toml", aliases);
-                        println!("{success}Removed alias `{yellow}{}{yellow:#}`", alias);
+                        if aliases.contains_key(alias) {
+                            aliases.remove(alias);
+                            save_file("aliases.toml", aliases);
+                            println!("{success}Removed alias `{yellow}{}{yellow:#}`", alias);
+                        } else {
+                            println!("{error}Alias `{yellow}{}{yellow:#}` doesn't exist", alias);
+                        }
                     }
                     Some(("list", _)) => {
                         let sorted = sort_by_key_length(aliases);
