@@ -37,7 +37,7 @@ fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &
         Err(_) => {
             eprintln!("{error}Could find file `{}`, creating new one", filename);
             let data: T = toml::from_str(default_content).unwrap();
-            save_file(filename, data);
+            save_file(filename, &data);
             default_content.to_owned()
         }
     };
@@ -52,10 +52,10 @@ fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &
 }
 
 
-fn save_file<T: serde::Serialize>(filename: &str, data: T) {
+fn save_file<T: serde::Serialize>(filename: &str, data: &T) {
     let red = AnsiColor::BrightRed.on_default().bold();
     let error = format!("{red}error:{red:#} ");
-    let contents = toml::to_string(&data).unwrap();
+    let contents = toml::to_string(data).unwrap();
     let exe = std::env::current_exe().unwrap().display().to_string();
     match fs::write(remove_after_slash(&exe).to_owned() + filename, contents) {
         Ok(_) => {},
@@ -202,6 +202,7 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
                 let mut input = String::new();
                 io::stdin().read_line(&mut input)?;
                 let name = input.trim();
+                // TODO: Add a confirm overwrite (get it to a function?)
                 if !name.is_empty() {
                     aliases.insert(name.to_string(), file_path.display().to_string());
                 } else {
@@ -216,11 +217,13 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
 }
 
 
-fn fix_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
+fn check_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
     let yellowb = AnsiColor::BrightYellow.on_default().bold();
     let yellow = AnsiColor::BrightYellow.on_default();
     let warning = format!("{yellowb}warning:{yellowb:#} ");
     let path = Path::new(&config.games_dir);
+    println!();
+
     if !path.exists() {
         eprintln!("{warning}games_dir `{yellow}{}{yellow:#}` does not exist, please create or change it.", config.games_dir);
     } else if !path.is_dir() {
@@ -278,8 +281,6 @@ async fn check_for_updates() -> String {
 async fn main() {
     let mut config: Config = read_file("config.toml", "games_dir = \"\"\ncheck_for_updates = true\nautoadd_ignore = []\n");
     let mut aliases: HashMap<String, String> = read_file("aliases.toml", "");
-
-    fix_config(&mut config, &mut aliases);
 
     let update_message = match config.check_for_updates {
         true => check_for_updates().await,
@@ -418,22 +419,44 @@ async fn main() {
                     Some(("add", matches)) => {
                         let alias: &String = matches.get_one("alias").unwrap();
                         let path: &String = matches.get_one("path").unwrap();
-                        aliases.insert(alias.to_string(), path.to_string());
-                        save_file("aliases.toml", aliases);
-                        println!("{success}Added alias `{yellow}{}{yellow:#}`", alias);
+
+                        if aliases.contains_key(alias) {
+                            // TODO: Get this y/n to just one line
+                            println!("Overwrite alias `{yellow}{}{yellow:#}`? (y/n)", alias);
+                            let mut buf = String::new();
+                            match io::stdin().read_line(&mut buf) {
+                                Ok(_) => {},
+                                Err(err) => {
+                                    eprintln!("{}", err);
+                                    exit(1);
+                                }
+                            }
+
+                            let input = buf.trim().to_lowercase();
+                            if input == "y" || input == "yes" {
+                                aliases.insert(alias.to_string(), path.to_string());
+                                save_file("aliases.toml", &aliases);
+                                println!("{success}Overwrote alias `{yellow}{}{yellow:#}`", alias);
+                            }
+                        } else {
+                            aliases.insert(alias.to_string(), path.to_string());
+                            save_file("aliases.toml", &aliases);
+                            println!("{success}Added alias `{yellow}{}{yellow:#}`", alias);
+                        }
+
                     }
                     Some(("remove", matches)) => {
                         let alias: &String = matches.get_one("alias").unwrap();
                         if aliases.contains_key(alias) {
                             aliases.remove(alias);
-                            save_file("aliases.toml", aliases);
+                            save_file("aliases.toml", &aliases);
                             println!("{success}Removed alias `{yellow}{}{yellow:#}`", alias);
                         } else {
                             println!("{error}Alias `{yellow}{}{yellow:#}` doesn't exist", alias);
                         }
                     }
                     Some(("list", _)) => {
-                        let sorted = sort_by_key_length(aliases);
+                        let sorted = sort_by_key_length(aliases.clone());
                         
                         let gray = AnsiColor::BrightBlack.on_default();
 
@@ -445,8 +468,8 @@ async fn main() {
                     Some(("autoadd", _)) => {
                         match autoadd(&mut aliases, &mut config) {
                             Ok(_) => {
-                                save_file("config.toml", config);
-                                save_file("aliases.toml", aliases);
+                                save_file("config.toml", &config);
+                                save_file("aliases.toml", &aliases);
                             },
                             Err(err) => eprintln!("{error}{}", err)
                         }
@@ -469,6 +492,7 @@ async fn main() {
             }
             _ => unreachable!(),
         }
+        check_config(&mut config, &mut aliases);
     }
     if !execute {
         let err = error.unwrap();
