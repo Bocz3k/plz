@@ -9,6 +9,7 @@ use anstyle::AnsiColor;
 use reqwest::Client;
 use std::path::Path;
 use anstyle::Style;
+use std::io::Write;
 use std::fs;
 use std::io;
 use toml;
@@ -198,13 +199,21 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
         } else if file_path.is_file() && file_name.ends_with(".exe") &&
                   !config.autoadd_ignore.contains(&file_path.display().to_string()) &&
                   !aliases.values().any(|val| val == &file_path.display().to_string()) {
-                println!("Alias name for `{yellow}{}{yellow:#}` (enter to skip): ", file_name);
+                
+                print!("Alias name for `{yellow}{}{yellow:#}` (enter to skip): ", file_name);
+                io::stdout().flush().unwrap();
                 let mut input = String::new();
                 io::stdin().read_line(&mut input)?;
                 let name = input.trim();
-                // TODO: Add a confirm overwrite (get it to a function?)
+                
                 if !name.is_empty() {
-                    aliases.insert(name.to_string(), file_path.display().to_string());
+                    if aliases.contains_key(name) {
+                        if user_input(format!("Overwrite alias `{yellow}{}{yellow:#}`? (y/n) ", name)) {
+                            aliases.insert(name.to_string(), file_path.display().to_string());
+                        }
+                    } else {
+                        aliases.insert(name.to_string(), file_path.display().to_string());
+                    }
                 } else {
                     config.autoadd_ignore.push(file_path.display().to_string());
                 }
@@ -220,22 +229,30 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
 fn check_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
     let yellowb = AnsiColor::BrightYellow.on_default().bold();
     let yellow = AnsiColor::BrightYellow.on_default();
-    let warning = format!("{yellowb}warning:{yellowb:#} ");
+    let warning = format!("\n{yellowb}warning:{yellowb:#} ");
     let path = Path::new(&config.games_dir);
-    println!();
+    let mut newline = false;
 
     if !path.exists() {
-        eprintln!("{warning}games_dir `{yellow}{}{yellow:#}` does not exist, please create or change it.", config.games_dir);
+        newline = true;
+        eprint!("{warning}games_dir `{yellow}{}{yellow:#}` does not exist, please create or change it.", config.games_dir);
     } else if !path.is_dir() {
-        eprintln!("{warning}games_dir `{yellow}{}{yellow:#}` is not a directory, please change it.", config.games_dir);
+        newline = true;
+        eprint!("{warning}games_dir `{yellow}{}{yellow:#}` is not a directory, please change it.", config.games_dir);
     }
 
     for path in aliases {
         if !Path::new(path.1).exists() {
-            eprintln!("{warning}Alias `{yellow}{}{yellow:#}` points to `{yellow}{}{yellow:#}` which does not exist.", path.0, path.1);
+            newline = true;
+            eprint!("{warning}Alias `{yellow}{}{yellow:#}` points to `{yellow}{}{yellow:#}` which does not exist.", path.0, path.1);
         } else if !Path::new(path.1).is_file() {
-            eprintln!("{warning}Alias `{yellow}{}{yellow:#}` points to `{yellow}{}{yellow:#}` which is not a file.", path.0, path.1);
+            newline = true;
+            eprint!("{warning}Alias `{yellow}{}{yellow:#}` points to `{yellow}{}{yellow:#}` which is not a file.", path.0, path.1);
         }
+    }
+
+    if newline {
+        println!();
     }
 }
 
@@ -259,6 +276,26 @@ fn sort_by_key_length(mut hashmap: HashMap<String, String>) -> Vec<(String, Stri
     let mut vec: Vec<(String, String)> = hashmap.drain().collect();
     vec.sort_by(|(key1, _), (key2, _)| key2.len().cmp(&key1.len()));
     vec.into_iter().collect()
+}
+
+
+fn user_input(message: String) -> bool {
+    print!("{}", message);
+    io::stdout().flush().unwrap();
+    let mut buf = String::new();
+    match io::stdin().read_line(&mut buf) {
+        Ok(_) => {},
+        Err(err) => {
+            eprintln!("{}", err);
+            exit(1);
+        }
+    }
+
+    let input = buf.trim().to_lowercase();
+    if input == "y" || input == "yes" {
+        return true;
+    }
+    return false;
 }
 
 
@@ -421,19 +458,7 @@ async fn main() {
                         let path: &String = matches.get_one("path").unwrap();
 
                         if aliases.contains_key(alias) {
-                            // TODO: Get this y/n to just one line
-                            println!("Overwrite alias `{yellow}{}{yellow:#}`? (y/n)", alias);
-                            let mut buf = String::new();
-                            match io::stdin().read_line(&mut buf) {
-                                Ok(_) => {},
-                                Err(err) => {
-                                    eprintln!("{}", err);
-                                    exit(1);
-                                }
-                            }
-
-                            let input = buf.trim().to_lowercase();
-                            if input == "y" || input == "yes" {
+                            if user_input(format!("Overwrite alias `{yellow}{}{yellow:#}`? (y/n) ", alias)) {
                                 aliases.insert(alias.to_string(), path.to_string());
                                 save_file("aliases.toml", &aliases);
                                 println!("{success}Overwrote alias `{yellow}{}{yellow:#}`", alias);
