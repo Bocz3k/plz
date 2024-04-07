@@ -156,12 +156,20 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
             let file_path = executable_file.display().to_string();
             let filename = executable_file.file_name().unwrap().to_string_lossy();
             if !config.autoadd_ignore.contains(&file_path) && !aliases.values().any(|val| val == &file_path) {
-                println!("Alias name for `{yellow}{}{yellow:#}` (enter to skip): ", filename);
+                print!("Alias name for `{yellow}{}{yellow:#}` (enter to skip): ", filename);
+                io::stdout().flush().unwrap();
                 let mut input = String::new();
                 io::stdin().read_line(&mut input)?;
                 let name = input.trim();
+                
                 if !name.is_empty() {
-                    aliases.insert(name.to_string(), file_path);
+                    if aliases.contains_key(name) {
+                        if user_input(format!("Overwrite alias `{yellow}{}{yellow:#}`? (y/n) ", name)) {
+                            aliases.insert(name.to_string(), file_path);
+                        }
+                    } else {
+                        aliases.insert(name.to_string(), file_path);
+                    }
                 } else {
                     config.autoadd_ignore.push(file_path);
                 }
