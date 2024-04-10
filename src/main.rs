@@ -91,7 +91,7 @@ async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
         .replace("Download ", "")
         .replace(" + OnLine", "");
 
-    let item = soup.select(&Selector::parse("a#download-link").unwrap()).next()?;
+    let item = soup.select(&Selector::parse("a#download-link.direct").unwrap()).next()?;
     let item_href = item.value().attr("href")?;
     let res = match client.get(item_href).send().await {
         Ok(res) => res,
