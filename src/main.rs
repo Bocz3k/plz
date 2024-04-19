@@ -239,28 +239,19 @@ fn check_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
     let yellow = AnsiColor::BrightYellow.on_default();
     let warning = format!("\n{yellowb}warning:{yellowb:#} ");
     let path = Path::new(&config.games_dir);
-    let mut newline = false;
 
     if !path.exists() {
-        newline = true;
         eprint!("{warning}games_dir `{yellow}{}{yellow:#}` does not exist, please create or change it.", config.games_dir);
     } else if !path.is_dir() {
-        newline = true;
         eprint!("{warning}games_dir `{yellow}{}{yellow:#}` is not a directory, please change it.", config.games_dir);
     }
 
     for path in aliases {
         if !Path::new(path.1).exists() {
-            newline = true;
             eprint!("{warning}Alias `{yellow}{}{yellow:#}` points to `{yellow}{}{yellow:#}` which does not exist.", path.0, path.1);
         } else if !Path::new(path.1).is_file() {
-            newline = true;
             eprint!("{warning}Alias `{yellow}{}{yellow:#}` points to `{yellow}{}{yellow:#}` which is not a file.", path.0, path.1);
         }
-    }
-
-    if newline {
-        println!();
     }
 }
 
@@ -315,7 +306,7 @@ async fn check_for_updates() -> String {
         if release.tag_name != String::from("v") + env!("CARGO_PKG_VERSION") {
             let green = AnsiColor::BrightGreen.on_default().bold();
             let yellow = AnsiColor::BrightYellow.on_default().bold();
-            return format!("\n{green}New version of plz available:{green:#}\n Current: {yellow}v{}{yellow:#}\n New version: {green}{}{green:#}", env!("CARGO_PKG_VERSION"), release.tag_name);
+            return format!("\n{green}New version of plz available:{green:#}\n Current: {yellow}v{}{yellow:#}\n New version: {green}{}{green:#}\n", env!("CARGO_PKG_VERSION"), release.tag_name);
         }
     }
     String::new()
@@ -352,6 +343,26 @@ async fn main() {
                 .about("Run a random alias")
         )
         .subcommand(
+            Command::new("config")
+                .about("Manage your config settings or view them")
+                .subcommand(
+                    Command::new("check_for_updates")
+                        .about("Change or view check_for_updates in your config")
+                        .arg(
+                            Arg::new("value")
+                                .help("Value to change it to")
+                        )
+                )
+                .subcommand(
+                    Command::new("games_dir")
+                        .about("Change or view games_dir in your config")
+                        .arg(
+                            Arg::new("value")
+                                .help("Value to change it to")
+                        )
+                )
+        )
+        .subcommand(
             Command::new("alias")
                 .about("Manage aliases")
                 .subcommand_required(true)
@@ -362,13 +373,11 @@ async fn main() {
                             Arg::new("alias")
                                 .help("The alias to add")
                                 .required(true)
-                                .action(ArgAction::Set)
                         )
                         .arg(
                             Arg::new("path")
                                 .help("The path to the alias")
                                 .required(true)
-                                .action(ArgAction::Set)
                         )
                 )
                 .subcommand(
@@ -378,7 +387,6 @@ async fn main() {
                             Arg::new("alias")
                                 .help("The alias to remove")
                                 .required(true)
-                                .action(ArgAction::Set)
                         )
                 )
                 .subcommand(
@@ -397,7 +405,6 @@ async fn main() {
                     Arg::new("game")
                         .help("The game to fetch links for")
                         .required(true)
-                        .action(ArgAction::Set)
                 )
         )
     .try_get_matches();
@@ -457,6 +464,43 @@ async fn main() {
                     if let Err(err) = std::process::Command::new(value).status() {
                         eprintln!("{error}Failed to run alias `{yellow}{}{yellow:#}`: {}", key, err);
                     } 
+                }
+            }
+            Some(("config", matches)) => {
+                match matches.subcommand() {
+                    Some(("check_for_updates", matches)) => {
+                        let value: Option<&String> = matches.get_one("value");
+                        if value.is_some() {
+                            if value.unwrap() == "true" {
+                                config.check_for_updates = true;
+                                save_file("config.toml", &config);
+                                println!("{success}Set value of check_for_updates to `{yellow}true{yellow:#}`");
+                            } else if value.unwrap() == "false" {
+                                config.check_for_updates = false;
+                                save_file("config.toml", &config);
+                                println!("{success}Set value of check_for_updates to `{yellow}false{yellow:#}`");
+                            } else {
+                                eprintln!("{error}Value needs to be either `{yellow}false{yellow:#}` or `{yellow}true{yellow:#}`");
+                            }
+                        } else {
+                            println!("Current value of check_for_updates is `{yellow}{}{yellow:#}`", config.check_for_updates);
+                        }
+                    }
+                    Some(("games_dir", matches)) => {
+                        let value: Option<&String> = matches.get_one("value");
+                        if value.is_some() {
+                            config.games_dir = value.unwrap().clone();
+                            save_file("config.toml", &config);
+                            println!("{success}Set value of games_dir to `{yellow}{}{yellow:#}`", value.unwrap());
+                        } else {
+                            println!("Current value of games_dir is `{yellow}{}{yellow:#}`", config.games_dir);
+                        }
+                    }
+                    _ => {
+                        println!("{bold}Current config values:{bold:#}");
+                        println!("{bold}games_dir:{bold:#} `{yellow}{}{yellow:#}`", config.games_dir);
+                        println!("{bold}check_for_updates:{bold:#} `{yellow}{}{yellow:#}`", config.check_for_updates);
+                    }
                 }
             }
             Some(("alias", matches)) => {
@@ -531,5 +575,5 @@ async fn main() {
         let err = error.unwrap();
         let _ = err.print();
     }
-    println!("{}", update_message);
+    print!("{}", update_message);
 }
