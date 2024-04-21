@@ -68,17 +68,24 @@ fn save_file<T: serde::Serialize>(filename: &str, data: &T) {
 async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
     let yellow = AnsiColor::BrightYellow.on_default();
     let green = AnsiColor::BrightGreen.on_default().bold();
+    let red = AnsiColor::BrightRed.on_default().bold();
+    let error = format!("{red}error:{red:#} ");
     let success = format!("{green}success:{green:#} ");
+    let bold = Style::new().bold();
     let perf = Instant::now();
     let client = reqwest::Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
 
     let url = format!("https://game3rb.com/{}", name);
     let res = match client.get(&url).send().await {
         Ok(res) => res,
-        Err(_) => return None,
+        Err(err) => {
+            eprintln!("{error}Error sending response: {}", err);
+            return None;
+        },
     };
 
-    if res.status().is_client_error() {
+    if res.status().as_u16() == 404 {
+        eprintln!("{error}Game not found");
         return None;
     }
 
@@ -110,7 +117,7 @@ async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
             }
             let dot = host[idx..].find('.').unwrap() + idx;
             let name = titlecase(&host[idx..dot]);
-            items.push(format!("{}: {}", name, host));
+            items.push(format!(" {bold}{name}:{bold:#} {host}"));
         }
     }
 
@@ -557,14 +564,11 @@ async fn main() {
             Some(("fetch", matches)) => {
                 let game: &String = matches.get_one("game").unwrap();
                 if let Some((title, items)) = fetch_game_info(game).await {
-                    let gray = AnsiColor::BrightBlack.on_default();
                     println!("{bold}{}", title);
                     println!("Download Links:{bold:#}");
                     for item in items {
-                        println!("{gray}-{gray:#} {}", item);
+                        println!("{item}");
                     }
-                } else {
-                    println!("{error}Game not found.");
                 }
             }
             _ => unreachable!(),
