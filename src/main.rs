@@ -202,7 +202,7 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
             "games_dir is empty, please set it first.",
         ));
     }
-
+    
     for entry in fs::read_dir(&config.games_dir)? {
         let entry = entry?;
         let file_path = entry.path();
@@ -246,11 +246,13 @@ fn check_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
     let yellow = AnsiColor::BrightYellow.on_default();
     let warning = format!("\n{yellowb}warning:{yellowb:#} ");
     let path = Path::new(&config.games_dir);
-
+    
     if !path.exists() {
-        eprint!("{warning}games_dir `{yellow}{}{yellow:#}` does not exist, please create or change it.", config.games_dir);
+        eprint!("{warning}games_dir `{yellow}{}{yellow:#}` does not exist.", config.games_dir);
     } else if !path.is_dir() {
-        eprint!("{warning}games_dir `{yellow}{}{yellow:#}` is not a directory, please change it.", config.games_dir);
+        eprint!("{warning}games_dir `{yellow}{}{yellow:#}` is not a directory.", config.games_dir);
+    } else if !config.games_dir.contains(std::path::MAIN_SEPARATOR) {
+        eprint!("{warning}games_dir `{yellow}{}{yellow:#}` doesn't use system's main separator ({}).", config.games_dir, std::path::MAIN_SEPARATOR);
     }
 
     for path in aliases {
@@ -332,7 +334,7 @@ async fn main() {
 
     let matches = Command::new("plz")
         .about("plz is an alias manager to help you manage your games.")
-        .version("0.1.0")
+        .version("0.2.2")
         .subcommand_required(true)
         .arg_required_else_help(true)
         .subcommand(
@@ -573,11 +575,11 @@ async fn main() {
             }
             _ => unreachable!(),
         }
-        check_config(&mut config, &mut aliases);
     }
     if !execute {
         let err = error.unwrap();
         let _ = err.print();
     }
+    check_config(&mut config, &mut aliases);
     print!("{}", update_message);
 }
