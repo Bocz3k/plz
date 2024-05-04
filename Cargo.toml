@@ -1,16 +1,15 @@
 [package]
 name = "plz"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+serde = { version = "1.0.200", features = ["derive"] }
 reqwest = { version = "0.12.4", features = ["json"] }
 tokio = { version = "1.37.0", features = ["full"] }
-serde_derive = "1.0.198"
 scraper = "0.19.0"
-anstyle = "1.0.6"
-serde = "1.0.198"
+anstyle = "1.0.7"
 toml = "0.8.12"
 clap = "4.5.4"
