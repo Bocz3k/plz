@@ -70,7 +70,8 @@ fn save_file<T: serde::Serialize>(filename: &str, data: &T) {
             exit(1);
         }
     };
-    match fs::write(exe.join(filename), contents) {
+    let path = exe.parent().unwrap();
+    match fs::write(path.join(filename), contents) {
         Ok(_) => {},
         Err(err) => eprintln!("{error}Failed to save file `{}`. {}", filename, err)
     }
