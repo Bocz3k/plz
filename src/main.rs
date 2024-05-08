@@ -92,13 +92,12 @@ async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
     let res = match client.get(&url).send().await {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("{error}Error sending response: {}", err);
+            eprintln!("{error}Error sending request: {}", err);
             return None;
         },
     };
 
     if res.status().as_u16() == 404 {
-        eprintln!("{error}Game not found");
         return None;
     }
 
@@ -109,7 +108,8 @@ async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
         .text()
         .collect::<String>()
         .replace("Download ", "")
-        .replace(" + OnLine", "");
+        .replace(" + OnLine", " + Online")
+        .trim().to_owned();
 
     let item = soup.select(&Selector::parse("a#download-link.direct").unwrap()).next()?;
     let item_href = item.value().attr("href")?;
@@ -135,6 +135,50 @@ async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
     }
 
     println!("{success}Fetched Game3rb for `{v}{}{v:#}` in {v}{:.2}{v:#}s\n", name, perf.elapsed().as_secs_f64());
+    Some((title, items))
+}
+
+
+async fn fetch_alternative(name: &str) -> Option<(String, Vec<String>)> {
+    let v = AnsiColor::BrightYellow.on_default();
+    let green = AnsiColor::BrightGreen.on_default().bold();
+    let red = AnsiColor::BrightRed.on_default().bold();
+    let error = format!("{red}error:{red:#} ");
+    let success = format!("{green}success:{green:#} ");
+    let bold = Style::new().bold();
+    let perf = Instant::now();
+    let client = reqwest::Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
+
+    let url = format!("https://steamrip.com/{}", name);
+    let res = match client.get(&url).send().await {
+        Ok(res) => res,
+        Err(err) => {
+            eprintln!("{error}Error sending request: {}", err);
+            return None;
+        },
+    };
+
+    if res.status().as_u16() == 404 {
+        return None;
+    }
+
+    let soup = Html::parse_document(&res.text().await.unwrap());
+    let title = soup
+        .select(&Selector::parse("h1.post-title").unwrap())
+        .next()?
+        .text()
+        .collect::<String>()
+        .replace(" Free Download", "")
+        .trim().to_owned();
+
+    let items: Vec<String> = soup.select(&Selector::parse("a.shortc-button").unwrap()).map(|item| {
+        let href = item.value().attr("href").unwrap();
+        let dot = href.find('.').unwrap();
+        let name = titlecase(&href[2..dot]);
+        return format!("{bold}{name}:{bold:#} https:{href}");
+    }).collect();
+
+    println!("{success}Fetched SteamRIP for `{v}{}{v:#}` in {v}{:.2}{v:#}s\n", name, perf.elapsed().as_secs_f64());
     Some((title, items))
 }
 
@@ -313,7 +357,7 @@ async fn check_for_updates() -> String {
         if release.tag_name != String::from("v") + env!("CARGO_PKG_VERSION") {
             let green = AnsiColor::BrightGreen.on_default().bold();
             let v = AnsiColor::BrightYellow.on_default().bold();
-            return format!("\n{green}New version of plz available:{green:#}\n Current: {v}v{}{v:#}\n New version: {green}{}{green:#}\n", env!("CARGO_PKG_VERSION"), release.tag_name);
+            return format!("\n{green}New version of plz available:{green:#}\n Current: {v}v{}{v:#}\n New version: {green}{}{green:#}", env!("CARGO_PKG_VERSION"), release.tag_name);
         }
     }
     String::new()
@@ -577,15 +621,30 @@ async fn main() {
             }
             Some(("fetch", matches)) => {
                 let game: &String = matches.get_one("game").unwrap();
-                if let Some((title, items)) = fetch_game_info(game).await {
-                    println!("{bold}{}", title);
-                    println!("Download links:{bold:#}");
-                    for item in items {
-                        println!("{item}");
+                match fetch_game_info(game).await {
+                    Some((title, items)) => {
+                        println!("{bold}{}", title);
+                        println!("Download links:{bold:#}");
+                        for item in items {
+                            println!("{item}");
+                        }
+                    }
+                    None => {
+                        eprintln!("{error}Failed to fetch Game3rb");
+                        match fetch_alternative(game).await {
+                            Some((title, items)) => {
+                                println!("{bold}{}", title);
+                                println!("Download links:{bold:#}");
+                                for item in items {
+                                    println!("{item}");
+                                }
+                            }
+                            None => eprintln!("{error}Failed to fetch SteamRIP")
+                        }
                     }
                 }
             }
-            _ => unreachable!(),
+            _ => unreachable!()
         }
     }
     if !execute {
@@ -595,7 +654,7 @@ async fn main() {
     check_config(&mut config, &mut aliases);
     match update_message {
         Some(future) => {
-            print!("{}", future.await);
+            println!("{}", future.await);
         }
         None => {}
     }
