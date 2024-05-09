@@ -19,6 +19,7 @@ const EXECUTABLE_BLACKLIST: [&str; 3] = ["unins000.exe", "UnityCrashHandler64.ex
 #[derive(Serialize, Deserialize)]
 struct Config {
     games_dir: String,
+    alternative_fetch: bool,
     check_for_updates: bool,
     autoadd_ignore: Vec<String>
 }
@@ -366,7 +367,7 @@ async fn check_for_updates() -> String {
 
 #[tokio::main]
 async fn main() {
-    let mut config: Config = read_file("config.toml", "games_dir = \"\"\ncheck_for_updates = true\nautoadd_ignore = []\n");
+    let mut config: Config = read_file("config.toml", "games_dir = \"\"\nalternative_fetch = false\ncheck_for_updates = true\nautoadd_ignore = []\n");
     let mut aliases: HashMap<String, String> = read_file("aliases.toml", "");
 
     let update_message = match config.check_for_updates {
@@ -561,9 +562,28 @@ async fn main() {
                             println!("Current value of games_dir is `{v}{}{v:#}`", config.games_dir);
                         }
                     }
+                    Some(("alternative_fetch", matches)) => {
+                        let value: Option<&String> = matches.get_one("value");
+                        if value.is_some() {
+                            if value.unwrap() == "true" {
+                                config.alternative_fetch = true;
+                                save_file("config.toml", &config);
+                                println!("{success}Set value of alternative_fetch to `{v}true{v:#}`");
+                            } else if value.unwrap() == "false" {
+                                config.alternative_fetch = false;
+                                save_file("config.toml", &config);
+                                println!("{success}Set value of alternative_fetch to `{v}false{v:#}`");
+                            } else {
+                                eprintln!("{error}Value needs to be either `{v}false{v:#}` or `{v}true{v:#}`");
+                            }
+                        } else {
+                            println!("Current value of alternative_fetch is `{v}{}{v:#}`", config.alternative_fetch);
+                        }
+                    }
                     _ => {
                         println!("{bold}Current config values:{bold:#}");
                         println!(" {bold}games_dir:{bold:#} `{v}{}{v:#}`", config.games_dir);
+                        println!(" {bold}alternative_fetch:{bold:#} `{v}{}{v:#}`", config.alternative_fetch);
                         println!(" {bold}check_for_updates:{bold:#} `{v}{}{v:#}`", config.check_for_updates);
                     }
                 }
@@ -621,25 +641,50 @@ async fn main() {
             }
             Some(("fetch", matches)) => {
                 let game: &String = matches.get_one("game").unwrap();
-                match fetch_game_info(game).await {
-                    Some((title, items)) => {
-                        println!("{bold}{}", title);
-                        println!("Download links:{bold:#}");
-                        for item in items {
-                            println!("{item}");
+                if config.alternative_fetch {
+                    match fetch_alternative(game).await {
+                        Some((title, items)) => {
+                            println!("{bold}{}", title);
+                            println!("SteamRIP Download links:{bold:#}");
+                            for item in items {
+                                println!("{item}");
+                            }
+                        }
+                        None => {
+                            eprintln!("{error}Failed to fetch SteamRIP");
+                            match fetch_game_info(game).await {
+                                Some((title, items)) => {
+                                    println!("{bold}{}", title);
+                                    println!("Game3rb Download links:{bold:#}");
+                                    for item in items {
+                                        println!("{item}");
+                                    }
+                                }
+                                None => eprintln!("{error}Failed to fetch Game3rb")
+                            }
                         }
                     }
-                    None => {
-                        eprintln!("{error}Failed to fetch Game3rb");
-                        match fetch_alternative(game).await {
-                            Some((title, items)) => {
-                                println!("{bold}{}", title);
-                                println!("Download links:{bold:#}");
-                                for item in items {
-                                    println!("{item}");
-                                }
+                } else {
+                    match fetch_game_info(game).await {
+                        Some((title, items)) => {
+                            println!("{bold}{}", title);
+                            println!("Game3rb Download links:{bold:#}");
+                            for item in items {
+                                println!("{item}");
                             }
-                            None => eprintln!("{error}Failed to fetch SteamRIP")
+                        }
+                        None => {
+                            eprintln!("{error}Failed to fetch Game3rb");
+                            match fetch_alternative(game).await {
+                                Some((title, items)) => {
+                                    println!("{bold}{}", title);
+                                    println!("SteamRIP Download links:{bold:#}");
+                                    for item in items {
+                                        println!("{item}");
+                                    }
+                                }
+                                None => eprintln!("{error}Failed to fetch SteamRIP")
+                            }
                         }
                     }
                 }
