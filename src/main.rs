@@ -377,7 +377,7 @@ async fn main() {
 
     let matches = Command::new("plz")
         .about("plz is an alias manager to help you manage your games.")
-        .version("0.2.2")
+        .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
         .subcommand(
@@ -484,14 +484,15 @@ async fn main() {
                 let alias: &String = matches.get_one("alias").unwrap();
                 match aliases.get(alias) {
                     Some(path) => {
-                        let path = match Path::new(path).parent() {
+                        let path: &Path = Path::new(path);
+                        let dir = match path.parent() {
                             Some(path) => path,
                             None => {
-                                eprintln!("{error}Tried to run the root directory");
+                                eprintln!("{error}Path: {}. Failed to get the parent of path", path.display());
                                 exit(1);
                             }
                         };
-                        match std::env::set_current_dir(path) {
+                        match std::env::set_current_dir(dir) {
                             Ok(_) => {}
                             Err(err) => {
                                 eprintln!("{error}Path: {}. {}", path.display(), err);
