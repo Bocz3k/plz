@@ -79,6 +79,104 @@ fn save_file<T: serde::Serialize>(filename: &str, data: &T) {
 }
 
 
+fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
+    return Command::new("plz")
+        .about("plz is an alias manager to help you manage your games.")
+        .version(env!("CARGO_PKG_VERSION"))
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .subcommand(
+            Command::new("run")
+                .about("Run an alias")
+                .arg(
+                    Arg::new("alias")
+                        .help("The alias to run")
+                        .required(true)
+                        .action(ArgAction::Set)
+                )
+        )
+        .subcommand(
+            Command::new("random")
+                .about("Run a random alias")
+        )
+        .subcommand(
+            Command::new("config")
+                .about("Manage your config settings or view them")
+                .subcommand(
+                    Command::new("check_for_updates")
+                        .about("Change or view check_for_updates in your config")
+                        .arg(
+                            Arg::new("value")
+                                .help("Value to change it to")
+                        )
+                )
+                .subcommand(
+                    Command::new("games_dir")
+                        .about("Change or view games_dir in your config")
+                        .arg(
+                            Arg::new("value")
+                                .help("Value to change it to")
+                        )
+                )
+        )
+        .subcommand(
+            Command::new("alias")
+                .about("Manage aliases")
+                .subcommand_required(true)
+                .subcommand(
+                    Command::new("add")
+                        .about("Add a new alias")
+                        .arg(
+                            Arg::new("alias")
+                                .help("The alias to add")
+                                .required(true)
+                        )
+                        .arg(
+                            Arg::new("path")
+                                .help("The path to the alias")
+                                .required(true)
+                        )
+                )
+                .subcommand(
+                    Command::new("remove")
+                        .about("Remove an alias")
+                        .arg(
+                            Arg::new("alias")
+                                .help("The alias to remove")
+                                .required(true)
+                        )
+                )
+                .subcommand(
+                    Command::new("list")
+                        .about("List all aliases")
+                )
+                .subcommand(
+                    Command::new("autoadd")
+                        .about("Automatically add aliases from games_dir")
+                )
+        )
+        .subcommand(
+            Command::new("fetch")
+                .about("Fetch links from Game3rb and SteamRIP")
+                .arg(
+                    Arg::new("game")
+                        .help("The game to fetch links for")
+                        .required(true)
+                )
+        )
+        .subcommand(
+            Command::new("fetcha")
+                .about("Fetch links from Game3rb and SteamRIP with reversed order")
+                .arg(
+                    Arg::new("game")
+                        .help("The game to fetch links for")
+                        .required(true)
+                )
+        )
+    .try_get_matches();
+}
+
+
 async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
     let v = AnsiColor::BrightYellow.on_default();
     let green = AnsiColor::BrightGreen.on_default().bold();
@@ -299,6 +397,60 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
 }
 
 
+async fn fetch(name: &str, reverse: bool) {
+    let red = AnsiColor::BrightRed.on_default().bold();
+    let error = format!("{red}error:{red:#} ");
+    let bold = Style::new().bold();
+
+    if reverse {
+        match fetch_alternative(name).await {
+            Some((title, items)) => {
+                println!("{bold}{}", title);
+                println!("Game3rb Download links:{bold:#}");
+                for item in items {
+                    println!("{item}");
+                }
+            }
+            None => {
+                eprintln!("{error}Failed to fetch Game3rb");
+                match fetch_game_info(name).await {
+                    Some((title, items)) => {
+                        println!("{bold}{}", title);
+                        println!("SteamRIP Download links:{bold:#}");
+                        for item in items {
+                            println!("{item}");
+                        }
+                    }
+                    None => eprintln!("{error}Failed to fetch SteamRIP")
+                }
+            }
+        }
+    } else {
+        match fetch_game_info(name).await {
+            Some((title, items)) => {
+                println!("{bold}{}", title);
+                println!("Game3rb Download links:{bold:#}");
+                for item in items {
+                    println!("{item}");
+                }
+            }
+            None => {
+                eprintln!("{error}Failed to fetch Game3rb");
+                match fetch_alternative(name).await {
+                    Some((title, items)) => {
+                        println!("{bold}{}", title);
+                        println!("SteamRIP Download links:{bold:#}");
+                        for item in items {
+                            println!("{item}");
+                        }
+                    }
+                    None => eprintln!("{error}Failed to fetch SteamRIP")
+                }
+            }
+        }
+    }
+}
+
 fn check_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
     let bold_yellow = AnsiColor::BrightYellow.on_default().bold();
     let v = AnsiColor::BrightYellow.on_default();
@@ -369,98 +521,12 @@ async fn check_for_updates() -> String {
 async fn main() {
     let mut config: Config = read_file("config.toml", "games_dir = \"\"\nalternative_fetch = false\ncheck_for_updates = true\nautoadd_ignore = []\n");
     let mut aliases: HashMap<String, String> = read_file("aliases.toml", "");
-
     let update_message = match config.check_for_updates {
         true => Some(check_for_updates()),
         false => None,
     };
 
-    let matches = Command::new("plz")
-        .about("plz is an alias manager to help you manage your games.")
-        .version(env!("CARGO_PKG_VERSION"))
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .subcommand(
-            Command::new("run")
-                .about("Run an alias")
-                .arg(
-                    Arg::new("alias")
-                        .help("The alias to run")
-                        .required(true)
-                        .action(ArgAction::Set)
-                )
-        )
-        .subcommand(
-            Command::new("random")
-                .about("Run a random alias")
-        )
-        .subcommand(
-            Command::new("config")
-                .about("Manage your config settings or view them")
-                .subcommand(
-                    Command::new("check_for_updates")
-                        .about("Change or view check_for_updates in your config")
-                        .arg(
-                            Arg::new("value")
-                                .help("Value to change it to")
-                        )
-                )
-                .subcommand(
-                    Command::new("games_dir")
-                        .about("Change or view games_dir in your config")
-                        .arg(
-                            Arg::new("value")
-                                .help("Value to change it to")
-                        )
-                )
-        )
-        .subcommand(
-            Command::new("alias")
-                .about("Manage aliases")
-                .subcommand_required(true)
-                .subcommand(
-                    Command::new("add")
-                        .about("Add a new alias")
-                        .arg(
-                            Arg::new("alias")
-                                .help("The alias to add")
-                                .required(true)
-                        )
-                        .arg(
-                            Arg::new("path")
-                                .help("The path to the alias")
-                                .required(true)
-                        )
-                )
-                .subcommand(
-                    Command::new("remove")
-                        .about("Remove an alias")
-                        .arg(
-                            Arg::new("alias")
-                                .help("The alias to remove")
-                                .required(true)
-                        )
-                )
-                .subcommand(
-                    Command::new("list")
-                        .about("List all aliases")
-                )
-                .subcommand(
-                    Command::new("autoadd")
-                        .about("Automatically add aliases from games_dir")
-                )
-        )
-        .subcommand(
-            Command::new("fetch")
-                .about("Fetch links from fetch sites and info site")
-                .arg(
-                    Arg::new("game")
-                        .help("The game to fetch links for")
-                        .required(true)
-                )
-        )
-    .try_get_matches();
-
+    let matches = get_matches();
     let mut execute = true;
     let mut error: Option<clap::Error> = None;
     let mut command: Option<clap::ArgMatches> = None;
@@ -643,51 +709,17 @@ async fn main() {
             Some(("fetch", matches)) => {
                 let game: &String = matches.get_one("game").unwrap();
                 if config.alternative_fetch {
-                    match fetch_alternative(game).await {
-                        Some((title, items)) => {
-                            println!("{bold}{}", title);
-                            println!("SteamRIP Download links:{bold:#}");
-                            for item in items {
-                                println!("{item}");
-                            }
-                        }
-                        None => {
-                            eprintln!("{error}Failed to fetch SteamRIP");
-                            match fetch_game_info(game).await {
-                                Some((title, items)) => {
-                                    println!("{bold}{}", title);
-                                    println!("Game3rb Download links:{bold:#}");
-                                    for item in items {
-                                        println!("{item}");
-                                    }
-                                }
-                                None => eprintln!("{error}Failed to fetch Game3rb")
-                            }
-                        }
-                    }
+                    fetch(game, true).await;
                 } else {
-                    match fetch_game_info(game).await {
-                        Some((title, items)) => {
-                            println!("{bold}{}", title);
-                            println!("Game3rb Download links:{bold:#}");
-                            for item in items {
-                                println!("{item}");
-                            }
-                        }
-                        None => {
-                            eprintln!("{error}Failed to fetch Game3rb");
-                            match fetch_alternative(game).await {
-                                Some((title, items)) => {
-                                    println!("{bold}{}", title);
-                                    println!("SteamRIP Download links:{bold:#}");
-                                    for item in items {
-                                        println!("{item}");
-                                    }
-                                }
-                                None => eprintln!("{error}Failed to fetch SteamRIP")
-                            }
-                        }
-                    }
+                    fetch(game, false).await;
+                }
+            }
+            Some(("fetcha", matches)) => {
+                let game: &String = matches.get_one("game").unwrap();
+                if config.alternative_fetch {
+                    fetch(game, false).await;
+                } else {
+                    fetch(game, true).await;
                 }
             }
             _ => unreachable!()
