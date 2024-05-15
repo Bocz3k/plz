@@ -406,22 +406,22 @@ async fn fetch(name: &str, reverse: bool) {
         match fetch_alternative(name).await {
             Some((title, items)) => {
                 println!("{bold}{}", title);
-                println!("Game3rb Download links:{bold:#}");
+                println!("SteamRIP Download links:{bold:#}");
                 for item in items {
                     println!("{item}");
                 }
             }
             None => {
-                eprintln!("{error}Failed to fetch Game3rb");
+                eprintln!("{error}Failed to fetch SteamRIP");
                 match fetch_game_info(name).await {
                     Some((title, items)) => {
                         println!("{bold}{}", title);
-                        println!("SteamRIP Download links:{bold:#}");
+                        println!("Game3rb Download links:{bold:#}");
                         for item in items {
                             println!("{item}");
                         }
                     }
-                    None => eprintln!("{error}Failed to fetch SteamRIP")
+                    None => eprintln!("{error}Failed to fetch Game3rb")
                 }
             }
         }
@@ -565,6 +565,7 @@ async fn main() {
                                 exit(1);
                             }
                         }
+                        println!("{bold}Running:{bold:#} `{v}{}{v:#}`", path.display());
                         if let Err(err) = std::process::Command::new(path).status() {
                             eprintln!("{error}Failed to run alias `{v}{}{v:#}`: {}", alias, err);
                         }
@@ -580,20 +581,22 @@ async fn main() {
                 let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
                 let index = current_time % aliases.len() as u128;
                 if let Some((alias, value)) = aliases.iter().nth(index as usize) {
-                    let path = match Path::new(value).parent() {
+                    let path = Path::new(value);
+                    let dir = match path.parent() {
                         Some(path) => path,
                         None => {
                             eprintln!("{error}Tried to run the root directory. Alias: `{v}{}{v:#}`", alias);
                             exit(1);
                         }
                     };
-                    match std::env::set_current_dir(path) {
+                    match std::env::set_current_dir(dir) {
                         Ok(_) => {}
                         Err(err) => {
                             eprintln!("{error}Path: `{v}{}{v:#}`. {}", path.display(), err);
                             exit(1);
                         }
                     }
+                    println!("{bold}Running:{bold:#} `{v}{}{v:#}`", path.display());
                     if let Err(err) = std::process::Command::new(value).status() {
                         eprintln!("{error}Failed to run alias `{v}{}{v:#}`: {}", alias, err);
                     } 
