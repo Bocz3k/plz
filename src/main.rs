@@ -1,13 +1,13 @@
-use std::time::{SystemTime, Duration, UNIX_EPOCH};
+use std::time::{UNIX_EPOCH, SystemTime, Duration};
+use std::path::{MAIN_SEPARATOR, Path};
 use serde::{Serialize, Deserialize};
-use clap::{Arg, Command, ArgAction};
 use scraper::{Html, Selector};
 use std::collections::HashMap;
+use clap::{Arg, Command};
 use std::time::Instant;
 use std::process::exit;
 use anstyle::AnsiColor;
 use reqwest::Client;
-use std::path::Path;
 use anstyle::Style;
 use std::io::Write;
 use std::fs;
@@ -19,9 +19,10 @@ const EXECUTABLE_BLACKLIST: [&str; 3] = ["unins000.exe", "UnityCrashHandler64.ex
 #[derive(Serialize, Deserialize)]
 struct Config {
     games_dir: String,
-    alternative_fetch: bool,
     check_for_updates: bool,
-    autoadd_ignore: Vec<String>
+    autoadd_ignore: Vec<String>,
+    aliases: HashMap<String, String>,
+    // meta: HashMap<String, String>
 }
 
 #[derive(Deserialize)]
@@ -30,7 +31,7 @@ struct Release {
 }
 
 
-fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &str, default_content: &str) -> T {
+fn read_config(default_content: &str) -> Config {
     let red = AnsiColor::BrightRed.on_default().bold();
     let error = format!("{red}error:{red:#} ");
     let exe = match std::env::current_exe() {
@@ -41,26 +42,26 @@ fn read_file<T: for<'de> serde::Deserialize<'de> + serde::Serialize>(filename: &
         }
     };
     let path = exe.parent().unwrap();
-    let contents = match fs::read_to_string(path.join(filename)) {
+    let contents = match fs::read_to_string(path.join("config.toml")) {
         Ok(contents) => contents,
         Err(_) => {
-            eprintln!("{error}Could find file `{}`, creating new one", filename);
-            let data: T = toml::from_str(default_content).unwrap();
-            save_file(filename, &data);
+            eprintln!("{error}Could find the config file, creating new one");
+            let data: Config = toml::from_str(default_content).unwrap();
+            save_config(&data);
             default_content.to_owned()
         }
     };
     match toml::from_str(&contents) {
         Ok(x) => x,
         Err(err) => {
-            eprintln!("{error}Unable to load data from `{}`. {}", filename, err);
+            eprintln!("{error}Unable to load the config file. {}", err);
             exit(1);
         }
     }
 }
 
 
-fn save_file<T: serde::Serialize>(filename: &str, data: &T) {
+fn save_config(data: &Config) {
     let red = AnsiColor::BrightRed.on_default().bold();
     let error = format!("{red}error:{red:#} ");
     let contents = toml::to_string(data).unwrap();
@@ -72,9 +73,9 @@ fn save_file<T: serde::Serialize>(filename: &str, data: &T) {
         }
     };
     let path = exe.parent().unwrap();
-    match fs::write(path.join(filename), contents) {
+    match fs::write(path.join("config.toml"), contents) {
         Ok(_) => {},
-        Err(err) => eprintln!("{error}Failed to save file `{}`. {}", filename, err)
+        Err(err) => eprintln!("{error}Failed to save the config file. {}", err)
     }
 }
 
@@ -92,7 +93,6 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
                     Arg::new("alias")
                         .help("The alias to run")
                         .required(true)
-                        .action(ArgAction::Set)
                 )
         )
         .subcommand(
@@ -238,50 +238,6 @@ async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
 }
 
 
-async fn fetch_alternative(name: &str) -> Option<(String, Vec<String>)> {
-    let v = AnsiColor::BrightYellow.on_default();
-    let green = AnsiColor::BrightGreen.on_default().bold();
-    let red = AnsiColor::BrightRed.on_default().bold();
-    let error = format!("{red}error:{red:#} ");
-    let success = format!("{green}success:{green:#} ");
-    let bold = Style::new().bold();
-    let perf = Instant::now();
-    let client = reqwest::Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
-
-    let url = format!("https://steamrip.com/{}", name);
-    let res = match client.get(&url).send().await {
-        Ok(res) => res,
-        Err(err) => {
-            eprintln!("{error}Error sending request: {}", err);
-            return None;
-        },
-    };
-
-    if res.status().as_u16() == 404 {
-        return None;
-    }
-
-    let soup = Html::parse_document(&res.text().await.unwrap());
-    let title = soup
-        .select(&Selector::parse("h1.post-title").unwrap())
-        .next()?
-        .text()
-        .collect::<String>()
-        .replace(" Free Download", "")
-        .trim().to_owned();
-
-    let items: Vec<String> = soup.select(&Selector::parse("a.shortc-button").unwrap()).map(|item| {
-        let href = item.value().attr("href").unwrap();
-        let dot = href.find('.').unwrap();
-        let name = titlecase(&href[2..dot]);
-        return format!("{bold}{name}:{bold:#} https:{href}");
-    }).collect();
-
-    println!("{success}Fetched SteamRIP for `{v}{}{v:#}` in {v}{:.2}{v:#}s\n", name, perf.elapsed().as_secs_f64());
-    Some((title, items))
-}
-
-
 fn titlecase(string: &str) -> String {
     let mut char_list: Vec<char> = string.chars().collect();
     for char in char_list.iter_mut() {
@@ -294,7 +250,7 @@ fn titlecase(string: &str) -> String {
 }
 
 
-fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Result<()> {
+fn recursive_search(path: &str, folder_path: &str, config: &mut Config) -> io::Result<()> {
     let v = AnsiColor::BrightYellow.on_default();
     let mut executables = Vec::new();
     let mut folders = Vec::new();
@@ -318,7 +274,7 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
         for executable_file in executables {
             let file_path = executable_file.display().to_string();
             let filename = executable_file.file_name().unwrap().to_string_lossy();
-            if !config.autoadd_ignore.contains(&file_path) && !aliases.values().any(|val| val == &file_path) {
+            if !config.autoadd_ignore.contains(&file_path) && !config.aliases.values().any(|val| val == &file_path) {
                 print!("Alias name for `{v}{}{v:#}` (enter to skip): ", filename);
                 io::stdout().flush().unwrap();
                 let mut input = String::new();
@@ -326,12 +282,12 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
                 let name = input.trim();
                 
                 if !name.is_empty() {
-                    if aliases.contains_key(name) {
+                    if config.aliases.contains_key(name) {
                         if user_input(format!("Overwrite alias `{v}{}{v:#}`? (y/n) ", name)) {
-                            aliases.insert(name.to_string(), file_path);
+                            config.aliases.insert(name.to_string(), file_path);
                         }
                     } else {
-                        aliases.insert(name.to_string(), file_path);
+                        config.aliases.insert(name.to_string(), file_path);
                     }
                 } else {
                     config.autoadd_ignore.push(file_path);
@@ -342,7 +298,7 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
         println!("No executables found in `{v}{}{v:#}`, going into subfolders", path);
         for folder in folders {
             let folder_path = folder.display().to_string();
-            recursive_search(&folder_path, &folder_path, aliases, config)?;
+            recursive_search(&folder_path, &folder_path, config)?;
         }
     }
 
@@ -350,7 +306,7 @@ fn recursive_search(path: &str, folder_path: &str, aliases: &mut HashMap<String,
 }
 
 
-fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Result<()> {
+fn autoadd(config: &mut Config) -> io::Result<()> {
     let v = AnsiColor::BrightYellow.on_default();
     if config.games_dir.is_empty() {
         return Err(io::Error::new(
@@ -366,10 +322,10 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
 
         if file_path.is_dir() {
             let folder_path = file_path.display().to_string();
-            recursive_search(&file_name, &folder_path, aliases, config)?;
+            recursive_search(&file_name, &folder_path, config)?;
         } else if file_path.is_file() && file_name.ends_with(".exe") &&
                   !config.autoadd_ignore.contains(&file_path.display().to_string()) &&
-                  !aliases.values().any(|val| val == &file_path.display().to_string()) {
+                  !config.aliases.values().any(|val| val == &file_path.display().to_string()) {
                 
                 print!("Alias name for `{v}{}{v:#}` (enter to skip): ", file_name);
                 io::stdout().flush().unwrap();
@@ -378,12 +334,12 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
                 let name = input.trim();
                 
                 if !name.is_empty() {
-                    if aliases.contains_key(name) {
+                    if config.aliases.contains_key(name) {
                         if user_input(format!("Overwrite alias `{v}{}{v:#}`? (y/n) ", name)) {
-                            aliases.insert(name.to_string(), file_path.display().to_string());
+                            config.aliases.insert(name.to_string(), file_path.display().to_string());
                         }
                     } else {
-                        aliases.insert(name.to_string(), file_path.display().to_string());
+                        config.aliases.insert(name.to_string(), file_path.display().to_string());
                     }
                 } else {
                     config.autoadd_ignore.push(file_path.display().to_string());
@@ -391,67 +347,29 @@ fn autoadd(aliases: &mut HashMap<String, String>, config: &mut Config) -> io::Re
         }
     }
 
-    save_file("config.toml", &config);
-    save_file("aliases.toml", &aliases);
+    save_config(&config);
     Ok(())
 }
 
 
-async fn fetch(name: &str, reverse: bool) {
+async fn fetch(name: &str) {
     let red = AnsiColor::BrightRed.on_default().bold();
     let error = format!("{red}error:{red:#} ");
     let bold = Style::new().bold();
 
-    if reverse {
-        match fetch_alternative(name).await {
-            Some((title, items)) => {
-                println!("{bold}{}", title);
-                println!("SteamRIP Download links:{bold:#}");
-                for item in items {
-                    println!("{item}");
-                }
-            }
-            None => {
-                eprintln!("{error}Failed to fetch SteamRIP");
-                match fetch_game_info(name).await {
-                    Some((title, items)) => {
-                        println!("{bold}{}", title);
-                        println!("Game3rb Download links:{bold:#}");
-                        for item in items {
-                            println!("{item}");
-                        }
-                    }
-                    None => eprintln!("{error}Failed to fetch Game3rb")
-                }
+    match fetch_game_info(name).await {
+        Some((title, items)) => {
+            println!("{bold}{}", title);
+            println!("Game3rb Download links:{bold:#}");
+            for item in items {
+                println!("{item}");
             }
         }
-    } else {
-        match fetch_game_info(name).await {
-            Some((title, items)) => {
-                println!("{bold}{}", title);
-                println!("Game3rb Download links:{bold:#}");
-                for item in items {
-                    println!("{item}");
-                }
-            }
-            None => {
-                eprintln!("{error}Failed to fetch Game3rb");
-                match fetch_alternative(name).await {
-                    Some((title, items)) => {
-                        println!("{bold}{}", title);
-                        println!("SteamRIP Download links:{bold:#}");
-                        for item in items {
-                            println!("{item}");
-                        }
-                    }
-                    None => eprintln!("{error}Failed to fetch SteamRIP")
-                }
-            }
-        }
+        None => eprintln!("{error}Failed to fetch Game3rb")
     }
 }
 
-fn check_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
+fn check_config(config: &mut Config) {
     let bold_yellow = AnsiColor::BrightYellow.on_default().bold();
     let v = AnsiColor::BrightYellow.on_default();
     let warning = format!("\n{bold_yellow}warning:{bold_yellow:#} ");
@@ -462,13 +380,13 @@ fn check_config(config: &mut Config, aliases: &mut HashMap<String, String>) {
     } else if !path.is_dir() {
         eprint!("{warning}games_dir `{v}{}{v:#}` is not a directory.", config.games_dir);
     } else if !config.games_dir.contains(std::path::MAIN_SEPARATOR) {
-        eprint!("{warning}games_dir `{v}{}{v:#}` doesn't use system's main separator ({}).", config.games_dir, std::path::MAIN_SEPARATOR);
+        eprint!("{warning}games_dir `{v}{}{v:#}` doesn't use system's main separator ({}).", config.games_dir, MAIN_SEPARATOR);
     }
 
-    for path in aliases {
-        if !Path::new(path.1).exists() {
+    for path in config.aliases.clone() {
+        if !Path::new(&path.1).exists() {
             eprint!("{warning}Alias `{v}{}{v:#}` points to `{v}{}{v:#}` which does not exist.", path.0, path.1);
-        } else if !Path::new(path.1).is_file() {
+        } else if !Path::new(&path.1).is_file() {
             eprint!("{warning}Alias `{v}{}{v:#}` points to `{v}{}{v:#}` which is not a file.", path.0, path.1);
         }
     }
@@ -519,38 +437,57 @@ async fn check_for_updates() -> String {
 
 #[tokio::main]
 async fn main() {
-    let mut config: Config = read_file("config.toml", "games_dir = \"\"\nalternative_fetch = false\ncheck_for_updates = true\nautoadd_ignore = []\n");
-    let mut aliases: HashMap<String, String> = read_file("aliases.toml", "");
+    let mut config: Config = read_config("games_dir = \"\"\nalternative_fetch = false\ncheck_for_updates = true\nautoadd_ignore = []\n[aliases]\n");
     let update_message = match config.check_for_updates {
         true => Some(check_for_updates()),
         false => None,
     };
 
-    let matches = get_matches();
-    let mut execute = true;
-    let mut error: Option<clap::Error> = None;
-    let mut command: Option<clap::ArgMatches> = None;
-    match matches {
-        Ok(matches) => command = Some(matches),
-        Err(err) => {
-            execute = false;
-            error = Some(err);
-        }
-    };
-
-    if execute {
-        let red = AnsiColor::BrightRed.on_default().bold();
-        let error = format!("{red}error:{red:#} ");
-        let green = AnsiColor::BrightGreen.on_default().bold();
-        let success = format!("{green}success:{green:#} ");
-        let v = AnsiColor::BrightYellow.on_default();
-        let bold = Style::new().bold();
-        match command.unwrap().subcommand() {
-            Some(("run", matches)) => {
-                let alias: &String = matches.get_one("alias").unwrap();
-                match aliases.get(alias) {
-                    Some(path) => {
-                        let path: &Path = Path::new(path);
+    match get_matches() {
+        Ok(matches) => {
+            let red = AnsiColor::BrightRed.on_default().bold();
+            let error = format!("{red}error:{red:#} ");
+            let green = AnsiColor::BrightGreen.on_default().bold();
+            let success = format!("{green}success:{green:#} ");
+            let v = AnsiColor::BrightYellow.on_default();
+            let bold = Style::new().bold();
+            match matches.subcommand() {
+                Some(("run", matches)) => {
+                    let alias: &String = matches.get_one("alias").unwrap();
+                    match config.aliases.get(alias) {
+                        Some(path) => {
+                            let path: &Path = Path::new(path);
+                            let dir = match path.parent() {
+                                Some(path) => path,
+                                None => {
+                                    eprintln!("{error}Path: {}. Failed to get the parent of path", path.display());
+                                    exit(1);
+                                }
+                            };
+                            match std::env::set_current_dir(dir) {
+                                Ok(_) => {}
+                                Err(err) => {
+                                    eprintln!("{error}Path: {}. {}", path.display(), err);
+                                    exit(1);
+                                }
+                            }
+                            println!("{bold}Running:{bold:#} `{v}{}{v:#}`", path.display());
+                            if let Err(err) = std::process::Command::new(path).status() {
+                                eprintln!("{error}Failed to run alias `{v}{}{v:#}`: {}", alias, err);
+                            }
+                        },
+                        None => eprintln!("{error}Alias `{v}{}{v:#}` not found", alias)
+                    }
+                }
+                Some(("random", _)) => {
+                    if config.aliases.len() == 0 {
+                        eprintln!("{error}No aliases found");
+                        exit(1);
+                    }
+                    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+                    let index = current_time % config.aliases.len() as u128;
+                    if let Some((alias, value)) = config.aliases.iter().nth(index as usize) {
+                        let path = Path::new(value);
                         let dir = match path.parent() {
                             Some(path) => path,
                             None => {
@@ -561,178 +498,112 @@ async fn main() {
                         match std::env::set_current_dir(dir) {
                             Ok(_) => {}
                             Err(err) => {
-                                eprintln!("{error}Path: {}. {}", path.display(), err);
+                                eprintln!("{error}Path: `{v}{}{v:#}`. {}", path.display(), err);
                                 exit(1);
                             }
                         }
                         println!("{bold}Running:{bold:#} `{v}{}{v:#}`", path.display());
-                        if let Err(err) = std::process::Command::new(path).status() {
+                        if let Err(err) = std::process::Command::new(value).status() {
                             eprintln!("{error}Failed to run alias `{v}{}{v:#}`: {}", alias, err);
-                        }
-                    },
-                    None => eprintln!("{error}Alias `{v}{}{v:#}` not found", alias)
-                }
-            }
-            Some(("random", _)) => {
-                if aliases.len() == 0 {
-                    eprintln!("{error}No aliases found");
-                    exit(1);
-                }
-                let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-                let index = current_time % aliases.len() as u128;
-                if let Some((alias, value)) = aliases.iter().nth(index as usize) {
-                    let path = Path::new(value);
-                    let dir = match path.parent() {
-                        Some(path) => path,
-                        None => {
-                            eprintln!("{error}Tried to run the root directory. Alias: `{v}{}{v:#}`", alias);
-                            exit(1);
-                        }
-                    };
-                    match std::env::set_current_dir(dir) {
-                        Ok(_) => {}
-                        Err(err) => {
-                            eprintln!("{error}Path: `{v}{}{v:#}`. {}", path.display(), err);
-                            exit(1);
-                        }
+                        } 
                     }
-                    println!("{bold}Running:{bold:#} `{v}{}{v:#}`", path.display());
-                    if let Err(err) = std::process::Command::new(value).status() {
-                        eprintln!("{error}Failed to run alias `{v}{}{v:#}`: {}", alias, err);
-                    } 
                 }
-            }
-            Some(("config", matches)) => {
-                match matches.subcommand() {
-                    Some(("check_for_updates", matches)) => {
-                        let value: Option<&String> = matches.get_one("value");
-                        if value.is_some() {
-                            if value.unwrap() == "true" {
-                                config.check_for_updates = true;
-                                save_file("config.toml", &config);
-                                println!("{success}Set value of check_for_updates to `{v}true{v:#}`");
-                            } else if value.unwrap() == "false" {
-                                config.check_for_updates = false;
-                                save_file("config.toml", &config);
-                                println!("{success}Set value of check_for_updates to `{v}false{v:#}`");
+                Some(("config", matches)) => {
+                    match matches.subcommand() {
+                        Some(("check_for_updates", matches)) => {
+                            let value: Option<&String> = matches.get_one("value");
+                            if value.is_some() {
+                                if value.unwrap() == "true" {
+                                    config.check_for_updates = true;
+                                    save_config(&config);
+                                    println!("{success}Set value of check_for_updates to `{v}true{v:#}`");
+                                } else if value.unwrap() == "false" {
+                                    config.check_for_updates = false;
+                                    save_config(&config);
+                                    println!("{success}Set value of check_for_updates to `{v}false{v:#}`");
+                                } else {
+                                    eprintln!("{error}Value needs to be either `{v}false{v:#}` or `{v}true{v:#}`");
+                                }
                             } else {
-                                eprintln!("{error}Value needs to be either `{v}false{v:#}` or `{v}true{v:#}`");
+                                println!("Current value of check_for_updates is `{v}{}{v:#}`", config.check_for_updates);
                             }
-                        } else {
-                            println!("Current value of check_for_updates is `{v}{}{v:#}`", config.check_for_updates);
                         }
-                    }
-                    Some(("games_dir", matches)) => {
-                        let value: Option<&String> = matches.get_one("value");
-                        if value.is_some() {
-                            config.games_dir = value.unwrap().clone();
-                            save_file("config.toml", &config);
-                            println!("{success}Set value of games_dir to `{v}{}{v:#}`", value.unwrap());
-                        } else {
-                            println!("Current value of games_dir is `{v}{}{v:#}`", config.games_dir);
-                        }
-                    }
-                    Some(("alternative_fetch", matches)) => {
-                        let value: Option<&String> = matches.get_one("value");
-                        if value.is_some() {
-                            if value.unwrap() == "true" {
-                                config.alternative_fetch = true;
-                                save_file("config.toml", &config);
-                                println!("{success}Set value of alternative_fetch to `{v}true{v:#}`");
-                            } else if value.unwrap() == "false" {
-                                config.alternative_fetch = false;
-                                save_file("config.toml", &config);
-                                println!("{success}Set value of alternative_fetch to `{v}false{v:#}`");
+                        Some(("games_dir", matches)) => {
+                            let value: Option<&String> = matches.get_one("value");
+                            if value.is_some() {
+                                config.games_dir = value.unwrap().clone();
+                                save_config(&config);
+                                println!("{success}Set value of games_dir to `{v}{}{v:#}`", value.unwrap());
                             } else {
-                                eprintln!("{error}Value needs to be either `{v}false{v:#}` or `{v}true{v:#}`");
+                                println!("Current value of games_dir is `{v}{}{v:#}`", config.games_dir);
                             }
-                        } else {
-                            println!("Current value of alternative_fetch is `{v}{}{v:#}`", config.alternative_fetch);
+                        }
+                        _ => {
+                            println!("{bold}Current config values:{bold:#}");
+                            println!(" {bold}games_dir:{bold:#} `{v}{}{v:#}`", config.games_dir);
+                            println!(" {bold}check_for_updates:{bold:#} `{v}{}{v:#}`", config.check_for_updates);
                         }
                     }
-                    _ => {
-                        println!("{bold}Current config values:{bold:#}");
-                        println!(" {bold}games_dir:{bold:#} `{v}{}{v:#}`", config.games_dir);
-                        println!(" {bold}alternative_fetch:{bold:#} `{v}{}{v:#}`", config.alternative_fetch);
-                        println!(" {bold}check_for_updates:{bold:#} `{v}{}{v:#}`", config.check_for_updates);
-                    }
                 }
-            }
-            Some(("alias", matches)) => {
-                match matches.subcommand() {
-                    Some(("add", matches)) => {
-                        let alias: &String = matches.get_one("alias").unwrap();
-                        let path: &String = matches.get_one("path").unwrap();
-
-                        if aliases.contains_key(alias) {
-                            if user_input(format!("Overwrite alias `{v}{}{v:#}`? (y/n) ", alias)) {
-                                aliases.insert(alias.to_string(), path.to_string());
-                                save_file("aliases.toml", &aliases);
-                                println!("{success}Overwrote alias `{v}{}{v:#}`", alias);
+                Some(("alias", matches)) => {
+                    match matches.subcommand() {
+                        Some(("add", matches)) => {
+                            let alias: &String = matches.get_one("alias").unwrap();
+                            let path: &String = matches.get_one("path").unwrap();
+    
+                            if config.aliases.contains_key(alias) {
+                                if user_input(format!("Overwrite alias `{v}{}{v:#}`? (y/n) ", alias)) {
+                                    config.aliases.insert(alias.to_string(), path.to_string());
+                                    save_config(&config);
+                                    println!("{success}Overwrote alias `{v}{}{v:#}`", alias);
+                                }
+                            } else {
+                                config.aliases.insert(alias.to_string(), path.to_string());
+                                save_config(&config);
+                                println!("{success}Added alias `{v}{}{v:#}`", alias);
                             }
-                        } else {
-                            aliases.insert(alias.to_string(), path.to_string());
-                            save_file("aliases.toml", &aliases);
-                            println!("{success}Added alias `{v}{}{v:#}`", alias);
+    
                         }
-
-                    }
-                    Some(("remove", matches)) => {
-                        let alias: &String = matches.get_one("alias").unwrap();
-                        if aliases.contains_key(alias) {
-                            aliases.remove(alias);
-                            save_file("aliases.toml", &aliases);
-                            println!("{success}Removed alias `{v}{}{v:#}`", alias);
-                        } else {
-                            println!("{error}Alias `{v}{}{v:#}` doesn't exist", alias);
+                        Some(("remove", matches)) => {
+                            let alias: &String = matches.get_one("alias").unwrap();
+                            if config.aliases.contains_key(alias) {
+                                config.aliases.remove(alias);
+                                save_config(&config);
+                                println!("{success}Removed alias `{v}{}{v:#}`", alias);
+                            } else {
+                                println!("{error}Alias `{v}{}{v:#}` doesn't exist", alias);
+                            }
                         }
-                    }
-                    Some(("list", _)) => {
-                        let sorted = sort_by_key_length(aliases.clone());
-                        
-                        let gray = AnsiColor::BrightBlack.on_default();
-
-                        println!("{bold}Aliases:");
-                        for (alias, path) in sorted.iter() {
-                            println!(" {bold}{}{bold:#} {gray}->{gray:#} {}", alias, path);
+                        Some(("list", _)) => {
+                            let sorted = sort_by_key_length(config.aliases.clone());
+                            let gray = AnsiColor::BrightBlack.on_default();
+                            
+                            println!("{bold}Aliases:");
+                            for (alias, path) in sorted.iter() {
+                                println!(" {bold}{}{bold:#} {gray}->{gray:#} {}", alias, path);
+                            }
                         }
-                    }
-                    Some(("autoadd", _)) => {
-                        match autoadd(&mut aliases, &mut config) {
-                            Ok(_) => {
-                                save_file("config.toml", &config);
-                                save_file("aliases.toml", &aliases);
-                            },
-                            Err(err) => eprintln!("{error}{}", err)
+                        Some(("autoadd", _)) => {
+                            match autoadd(&mut config) {
+                                Ok(_) => {
+                                    save_config(&config);
+                                },
+                                Err(err) => eprintln!("{error}{}", err)
+                            }
                         }
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
                 }
-            }
-            Some(("fetch", matches)) => {
-                let game: &String = matches.get_one("game").unwrap();
-                if config.alternative_fetch {
-                    fetch(game, true).await;
-                } else {
-                    fetch(game, false).await;
+                Some(("fetch", matches)) => {
+                    let game: &String = matches.get_one("game").unwrap();
+                    fetch(game).await;
                 }
+                _ => unreachable!()
             }
-            Some(("fetcha", matches)) => {
-                let game: &String = matches.get_one("game").unwrap();
-                if config.alternative_fetch {
-                    fetch(game, false).await;
-                } else {
-                    fetch(game, true).await;
-                }
-            }
-            _ => unreachable!()
         }
+        Err(err) => err.print().unwrap()
     }
-    if !execute {
-        let err = error.unwrap();
-        let _ = err.print();
-    }
-    check_config(&mut config, &mut aliases);
+    check_config(&mut config);
     match update_message {
         Some(future) => {
             println!("{}", future.await);
