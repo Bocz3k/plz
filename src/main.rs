@@ -164,15 +164,6 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
                         .required(true)
                 )
         )
-        .subcommand(
-            Command::new("fetcha")
-                .about("Fetch links from Game3rb and SteamRIP with reversed order")
-                .arg(
-                    Arg::new("game")
-                        .help("The game to fetch links for")
-                        .required(true)
-                )
-        )
     .try_get_matches();
 }
 
