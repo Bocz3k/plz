@@ -14,12 +14,11 @@ use std::fs;
 use std::io;
 use toml;
 
-const EXECUTABLE_BLACKLIST: [&str; 3] = ["unins000.exe", "UnityCrashHandler64.exe", "UnityCrashHandler32.exe"];
-
 #[derive(Serialize, Deserialize)]
 struct Config {
     games_dir: String,
     check_for_updates: bool,
+    default_fetch_provider: String,
     autoadd_ignore: Vec<String>,
     aliases: HashMap<String, String>,
     // meta: HashMap<String, String>
@@ -107,7 +106,7 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
                         .about("Change or view check_for_updates in your config")
                         .arg(
                             Arg::new("value")
-                                .help("Value to change it to")
+                                .help("Value to change it to (true/false)")
                         )
                 )
                 .subcommand(
@@ -115,7 +114,15 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
                         .about("Change or view games_dir in your config")
                         .arg(
                             Arg::new("value")
-                                .help("Value to change it to")
+                                .help("Value to change it to (valid path)")
+                        )
+                )
+                .subcommand(
+                    Command::new("default_fetch_provider")
+                        .about("Change or view default_fetch_provider in your config")
+                        .arg(
+                            Arg::new("value")
+                                .help("Value to change it to (Game3rb/GOG Games)")
                         )
                 )
         )
@@ -157,7 +164,25 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
         )
         .subcommand(
             Command::new("fetch")
-                .about("Fetch links from Game3rb and SteamRIP")
+                .about("Fetch links from your default fetch provider")
+                .arg(
+                    Arg::new("game")
+                        .help("The game to fetch links for")
+                        .required(true)
+                )
+        )
+        .subcommand(
+            Command::new("fetchrb")
+                .about("Fetch links from Game3rb")
+                .arg(
+                    Arg::new("game")
+                        .help("The game to fetch links for")
+                        .required(true)
+                )
+        )
+        .subcommand(
+            Command::new("fetchgog")
+                .about("Fetch links from GOG Games")
                 .arg(
                     Arg::new("game")
                         .help("The game to fetch links for")
@@ -168,7 +193,7 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
 }
 
 
-async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
+async fn fetch_game3rb(name: &str) -> bool {
     let v = AnsiColor::BrightYellow.on_default();
     let green = AnsiColor::BrightGreen.on_default().bold();
     let red = AnsiColor::BrightRed.on_default().bold();
@@ -183,65 +208,117 @@ async fn fetch_game_info(name: &str) -> Option<(String, Vec<String>)> {
         Ok(res) => res,
         Err(err) => {
             eprintln!("{error}Error sending request: {}", err);
-            return None;
+            return false;
         },
     };
 
     if res.status().as_u16() == 404 {
-        return None;
+        eprintln!("{error}Failed to fetch Game3rb");
+        return false;
     }
 
     let soup = Html::parse_document(&res.text().await.unwrap());
     let title = soup
         .select(&Selector::parse("h1.post-title").unwrap())
-        .next()?
-        .text()
-        .collect::<String>()
+        .next().unwrap()
+        .text().collect::<String>()
         .replace("Download ", "")
         .replace(" + OnLine", " + Online")
         .trim().to_owned();
 
-    let item = soup.select(&Selector::parse("a#download-link.direct").unwrap()).next()?;
-    let item_href = item.value().attr("href")?;
-    let res = match client.get(item_href).send().await {
+    println!("{bold}{title}\nGame3rb Download links:{bold:#}");
+    let item = soup.select(&Selector::parse("a#download-link.direct").unwrap()).next().unwrap();
+    let href = item.value().attr("href").unwrap();
+    let res = match client.get(href).send().await {
         Ok(res) => res,
-        Err(_) => return None,
+        Err(_) => {
+            eprintln!("{error}Failed to get to the links website");
+            return false;
+        },
     };
 
-    let selected = &Selector::parse("ol li").unwrap();
+    let selector = &Selector::parse("ol li a").unwrap();
     let soup = Html::parse_document(&res.text().await.unwrap());
-    let links = soup.select(selected);
-    let mut items = Vec::new();
+    let links = soup.select(selector);
     for link in links {
-        if let Some(host) = link.select(&Selector::parse("a").unwrap()).next().and_then(|a| a.value().attr("href")) {
-            let mut idx = host.find("://").unwrap() + 3;
-            if host[idx..].starts_with("www.") {
-                idx += 4;
-            }
-            let dot = host[idx..].find('.').unwrap() + idx;
-            let name = titlecase(&host[idx..dot]);
-            items.push(format!(" {bold}{name}:{bold:#} {host}"));
+        let host = link.attr("href").unwrap();
+        let mut idx = host.find("://").unwrap() + 3;
+        if host[idx..].starts_with("www.") {
+            idx += 4;
         }
+        let dot = host[idx..].find('.').unwrap() + idx;
+        let name = titlecase(&host[idx..dot]);
+        println!(" {bold}{name}:{bold:#} {host}");
     }
 
     println!("{success}Fetched Game3rb for `{v}{}{v:#}` in {v}{:.2}{v:#}s\n", name, perf.elapsed().as_secs_f64());
-    Some((title, items))
+    return true;
+}
+
+
+async fn fetch_gog_games(name: &str) -> bool {
+    let v = AnsiColor::BrightYellow.on_default();
+    let green = AnsiColor::BrightGreen.on_default().bold();
+    let red = AnsiColor::BrightRed.on_default().bold();
+    let error = format!("{red}error:{red:#} ");
+    let success = format!("{green}success:{green:#} ");
+    let bold = Style::new().bold();
+    let perf = Instant::now();
+    let client = reqwest::Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
+
+    let url = format!("https://gog-games.to/game/{}", name.replace('-', "_"));
+    let res = match client.get(&url).send().await {
+        Ok(res) => res,
+        Err(err) => {
+            eprintln!("{error}Error sending request: {}", err);
+            return false;
+        },
+    };
+
+    if res.status().as_u16() == 404 {
+        eprintln!("{error}Failed to fetch GOG Games");
+        return false;
+    }
+
+    let soup = Html::parse_document(&res.text().await.unwrap());
+    let title = soup.select(&Selector::parse("div.index h1").unwrap())
+        .next().unwrap().text().collect::<String>();
+    
+    println!("{bold}{title}{bold:#}");
+    let selector = &Selector::parse("div.items-links-block div").unwrap();
+    let groups = soup.select(selector);
+
+    for group in groups {
+        let selector = &Selector::parse("div.title").unwrap();
+        let mut title = group.select(selector);
+        let title = title.next().unwrap().text();
+        println!("{bold}{}:{bold:#}", title.collect::<String>());
+
+        let selector = &Selector::parse("div.item-expand.wrap").unwrap();
+        let links = group.select(selector);
+        for link in links {
+            let name = link.select(&Selector::parse("label").unwrap())
+                .next().unwrap().attr("title").unwrap();
+            let href = link.select(&Selector::parse("div.items-group a").unwrap())
+                .next().unwrap().attr("href").unwrap();
+            println!(" {bold}{name}:{bold:#} {href}");
+        }
+    }
+
+    println!("{success}Fetched GOG Games for `{v}{}{v:#}` in {v}{:.2}{v:#}s\n", name, perf.elapsed().as_secs_f64());
+    return true;
 }
 
 
 fn titlecase(string: &str) -> String {
-    let mut char_list: Vec<char> = string.chars().collect();
-    for char in char_list.iter_mut() {
-        if char.is_alphabetic() {
-            *char = char.to_ascii_uppercase();
-            break;
-        }
-    }
-    char_list.into_iter().collect()
+    let mut chars = string.chars();
+    let first = chars.next().unwrap().to_uppercase().collect::<String>();
+    first + chars.as_str()
 }
 
 
 fn recursive_search(path: &str, folder_path: &str, config: &mut Config) -> io::Result<()> {
+    const EXECUTABLE_BLACKLIST: [&str; 3] = ["unins000.exe", "UnityCrashHandler64.exe", "UnityCrashHandler32.exe"];
     let v = AnsiColor::BrightYellow.on_default();
     let mut executables = Vec::new();
     let mut folders = Vec::new();
@@ -343,20 +420,30 @@ fn autoadd(config: &mut Config) -> io::Result<()> {
 }
 
 
-async fn fetch(name: &str) {
+async fn fetch(name: &str, provider: &str) {
     let red = AnsiColor::BrightRed.on_default().bold();
     let error = format!("{red}error:{red:#} ");
-    let bold = Style::new().bold();
+    let v = AnsiColor::BrightYellow.on_default();
 
-    match fetch_game_info(name).await {
-        Some((title, items)) => {
-            println!("{bold}{}", title);
-            println!("Game3rb Download links:{bold:#}");
-            for item in items {
-                println!("{item}");
-            }
+    let name = &name.replace(' ', "-");
+    let primary = match provider {
+        "GOG Games" => fetch_gog_games(name).await,
+        "Game3rb" => fetch_game3rb(name).await,
+        _ => {
+            eprintln!("{error}Fetch provider is not valid `{v}{provider}{v:#}`");
+            exit(1);
         }
-        None => eprintln!("{error}Failed to fetch Game3rb")
+    };
+
+    match primary {
+        true => {}
+        false => {
+            match provider {
+                "GOG Games" => fetch_game3rb(name).await,
+                "Game3rb" => fetch_gog_games(name).await,
+                _ => unreachable!()
+            };
+        }
     }
 }
 
@@ -381,11 +468,21 @@ fn check_config(config: &mut Config) {
             eprint!("{warning}Alias `{v}{}{v:#}` points to `{v}{}{v:#}` which is not a file.", path.0, path.1);
         }
     }
+
+    let mut idx = 0;
+    for path in config.autoadd_ignore.clone() {
+        if !Path::new(&path).exists() {
+            config.autoadd_ignore.remove(idx);
+        } else {
+            idx += 1;
+        }
+    }
+    save_config(config);
 }
 
 
-fn sort_by_key_length(mut hashmap: HashMap<String, String>) -> Vec<(String, String)> {
-    let mut vec: Vec<(String, String)> = hashmap.drain().collect();
+fn sort_by_key_length(mut hash_map: HashMap<String, String>) -> Vec<(String, String)> {
+    let mut vec: Vec<(String, String)> = hash_map.drain().collect();
     vec.sort_by(|(key1, _), (key2, _)| key2.len().cmp(&key1.len()));
     vec.into_iter().collect()
 }
@@ -519,6 +616,24 @@ async fn main() {
                                 println!("Current value of check_for_updates is `{v}{}{v:#}`", config.check_for_updates);
                             }
                         }
+                        Some(("default_fetch_provider", matches)) => {
+                            let value: Option<&String> = matches.get_one("value");
+                            if value.is_some() {
+                                if value.unwrap() == "Game3rb" {
+                                    config.default_fetch_provider = String::from("Game3rb");
+                                    save_config(&config);
+                                    println!("{success}Set value of default_fetch_provider to `{v}Game3rb{v:#}`");
+                                } else if value.unwrap() == "GOG Games" {
+                                    config.default_fetch_provider = String::from("GOG Games");
+                                    save_config(&config);
+                                    println!("{success}Set value of default_fetch_provider to `{v}GOG Games{v:#}`");
+                                } else {
+                                    eprintln!("{error}Value needs to be either `{v}Game3rb{v:#}` or `{v}GOG Games{v:#}`");
+                                }
+                            } else {
+                                println!("Current value of default_fetch_provider is `{v}{}{v:#}`", config.default_fetch_provider);
+                            }
+                        }
                         Some(("games_dir", matches)) => {
                             let value: Option<&String> = matches.get_one("value");
                             if value.is_some() {
@@ -587,7 +702,15 @@ async fn main() {
                 }
                 Some(("fetch", matches)) => {
                     let game: &String = matches.get_one("game").unwrap();
-                    fetch(game).await;
+                    fetch(game, &config.default_fetch_provider).await;
+                }
+                Some(("fetchrb", matches)) => {
+                    let game: &String = matches.get_one("game").unwrap();
+                    fetch(game, "Game3rb").await;
+                }
+                Some(("fetchgog", matches)) => {
+                    let game: &String = matches.get_one("game").unwrap();
+                    fetch(game, "GOG Games").await;
                 }
                 _ => unreachable!()
             }
