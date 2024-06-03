@@ -510,7 +510,7 @@ fn user_input(message: String) -> bool {
 
 async fn check_for_updates() -> String {
     let client = Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
-    let res = client.get("https://api.github.com/repos/Bocz3k/plz/releases/latest").send().await;
+    let res = client.get("https://api.github.com/repos/notbacon/plz/releases/latest").send().await;
     if let Ok(res) = res {
         let release: Release = res.json().await.unwrap();
         if release.tag_name != String::from("v") + env!("CARGO_PKG_VERSION") {
