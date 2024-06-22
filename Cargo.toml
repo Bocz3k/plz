@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1.0.203", features = ["derive"] }
-reqwest = { version = "0.12.4", features = ["json"] }
-tokio = { version = "1.37.0", features = ["full"] }
+reqwest = { version = "0.12.5", features = ["json"] }
+tokio = { version = "1.38.0", features = ["full"] }
 scraper = "0.19.0"
 anstyle = "1.0.7"
-toml = "0.8.13"
-clap = "4.5.4"
+toml = "0.8.14"
+clap = "4.5.7"
