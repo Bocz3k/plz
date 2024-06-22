@@ -12,7 +12,6 @@ use anstyle::Style;
 use std::io::Write;
 use std::fs;
 use std::io;
-use toml;
 
 #[derive(Serialize, Deserialize)]
 struct Config {
@@ -20,8 +19,7 @@ struct Config {
     check_for_updates: bool,
     default_fetch_provider: String,
     autoadd_ignore: Vec<String>,
-    aliases: HashMap<String, String>,
-    // meta: HashMap<String, String>
+    aliases: HashMap<String, String>
 }
 
 #[derive(Deserialize)]
@@ -80,7 +78,7 @@ fn save_config(data: &Config) {
 
 
 fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
-    return Command::new("plz")
+    Command::new("plz")
         .about("plz is an alias manager to help you manage your games.")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
@@ -122,7 +120,7 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
                         .about("Change or view default_fetch_provider in your config")
                         .arg(
                             Arg::new("value")
-                                .help("Value to change it to (Game3rb/GOG Games)")
+                                .help("Value to change it to (SteamRIP/Game3rb/GOG Games)")
                         )
                 )
         )
@@ -172,6 +170,15 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
                 )
         )
         .subcommand(
+            Command::new("fetchrip")
+                .about("Fetch links from SteamRIP")
+                .arg(
+                    Arg::new("game")
+                        .help("The game to fetch links for")
+                        .required(true)
+                )
+        )
+        .subcommand(
             Command::new("fetchrb")
                 .about("Fetch links from Game3rb")
                 .arg(
@@ -189,7 +196,7 @@ fn get_matches() -> Result<clap::ArgMatches, clap::Error> {
                         .required(true)
                 )
         )
-    .try_get_matches();
+    .try_get_matches()
 }
 
 
@@ -207,7 +214,7 @@ async fn fetch_game3rb(name: &str) -> bool {
     let res = match client.get(&url).send().await {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("{error}Error sending request: {}", err);
+            eprintln!("{error}Error sending request: {err}");
             return false;
         },
     };
@@ -239,8 +246,7 @@ async fn fetch_game3rb(name: &str) -> bool {
 
     let selector = &Selector::parse("ol li a").unwrap();
     let soup = Html::parse_document(&res.text().await.unwrap());
-    let links = soup.select(selector);
-    for link in links {
+    for link in soup.select(selector) {
         let host = link.attr("href").unwrap();
         let mut idx = host.find("://").unwrap() + 3;
         if host[idx..].starts_with("www.") {
@@ -252,7 +258,53 @@ async fn fetch_game3rb(name: &str) -> bool {
     }
 
     println!("{success}Fetched Game3rb for `{v}{}{v:#}` in {v}{:.2}{v:#}s\n", name, perf.elapsed().as_secs_f64());
-    return true;
+    true
+}
+
+
+async fn fetch_steamrip(name: &str) -> bool {
+    let v = AnsiColor::BrightYellow.on_default();
+    let green = AnsiColor::BrightGreen.on_default().bold();
+    let red = AnsiColor::BrightRed.on_default().bold();
+    let error = format!("{red}error:{red:#} ");
+    let success = format!("{green}success:{green:#} ");
+    let bold = Style::new().bold();
+    let perf = Instant::now();
+    let client = reqwest::Client::builder().user_agent("plz").timeout(Duration::from_secs(5)).build().unwrap();
+
+    let url = format!("https://steamrip.com/{}", name);
+    let res = match client.get(&url).send().await {
+        Ok(res) => res,
+        Err(err) => {
+            eprintln!("{error}Error sending request: {err}");
+            return false;
+        },
+    };
+
+    if res.status().as_u16() == 404 {
+        eprintln!("{error}Failed to fetch SteamRIP");
+        return false;
+    }
+
+    let soup = Html::parse_document(&res.text().await.unwrap());
+    let title = soup
+        .select(&Selector::parse("h1.post-title").unwrap())
+        .next().unwrap()
+        .text().collect::<String>()
+        .replace(" Free Download", "")
+        .trim().to_owned();
+
+    println!("{bold}{title}{bold:#}");
+    let selector = &Selector::parse("a.shortc-button").unwrap();
+    for item in soup.select(selector) {
+        let href = item.value().attr("href").unwrap();
+        let dot = href.find('.').unwrap();
+        let name = titlecase(&href[2..dot]);
+        println!(" {bold}{name}:{bold:#} https:{href}");
+    }
+
+    println!("{success}Fetched SteamRIP for `{v}{}{v:#}` in {v}{:.2}{v:#}s\n", name, perf.elapsed().as_secs_f64());
+    true
 }
 
 
@@ -270,7 +322,7 @@ async fn fetch_gog_games(name: &str) -> bool {
     let res = match client.get(&url).send().await {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("{error}Error sending request: {}", err);
+            eprintln!("{error}Error sending request: {err}");
             return false;
         },
     };
@@ -286,9 +338,7 @@ async fn fetch_gog_games(name: &str) -> bool {
     
     println!("{bold}{title}{bold:#}");
     let selector = &Selector::parse("div.items-links-block div").unwrap();
-    let groups = soup.select(selector);
-
-    for group in groups {
+    for group in soup.select(selector) {
         let selector = &Selector::parse("div.title").unwrap();
         let mut title = group.select(selector);
         let title = title.next().unwrap().text();
@@ -306,7 +356,7 @@ async fn fetch_gog_games(name: &str) -> bool {
     }
 
     println!("{success}Fetched GOG Games for `{v}{}{v:#}` in {v}{:.2}{v:#}s\n", name, perf.elapsed().as_secs_f64());
-    return true;
+    true
 }
 
 
@@ -415,7 +465,7 @@ fn autoadd(config: &mut Config) -> io::Result<()> {
         }
     }
 
-    save_config(&config);
+    save_config(config);
     Ok(())
 }
 
@@ -429,18 +479,26 @@ async fn fetch(name: &str, provider: &str) {
     let primary = match provider {
         "GOG Games" => fetch_gog_games(name).await,
         "Game3rb" => fetch_game3rb(name).await,
+        "SteamRIP" => fetch_steamrip(name).await,
         _ => {
             eprintln!("{error}Fetch provider is not valid `{v}{provider}{v:#}`");
+            eprintln!("{error}Avaliable: [{v}SteamRIP{v:#}, {v}Game3rb{v:#}, {v}GOG Games{v:#}]");
             exit(1);
         }
     };
 
-    match primary {
-        true => {}
-        false => {
+    if !primary {
+        let secondary = match provider {
+            "GOG Games" => fetch_steamrip(name).await,
+            "Game3rb" => fetch_steamrip(name).await,
+            "SteamRIP" => fetch_game3rb(name).await,
+            _ => unreachable!()
+        };
+        if !secondary {
             match provider {
                 "GOG Games" => fetch_game3rb(name).await,
                 "Game3rb" => fetch_gog_games(name).await,
+                "SteamRIP" => fetch_gog_games(name).await,
                 _ => unreachable!()
             };
         }
@@ -504,7 +562,7 @@ fn user_input(message: String) -> bool {
     if input == "y" || input == "yes" {
         return true;
     }
-    return false;
+    false
 }
 
 
@@ -525,7 +583,7 @@ async fn check_for_updates() -> String {
 
 #[tokio::main]
 async fn main() {
-    let mut config: Config = read_config("games_dir = \"\"\nalternative_fetch = false\ncheck_for_updates = true\nautoadd_ignore = []\n[aliases]\n");
+    let mut config: Config = read_config("games_dir = \"\"\ndefault_fetch_provider = \"SteamRIP\"\ncheck_for_updates = true\nautoadd_ignore = []\n[aliases]");
     let update_message = match config.check_for_updates {
         true => Some(check_for_updates()),
         false => None,
@@ -568,7 +626,7 @@ async fn main() {
                     }
                 }
                 Some(("random", _)) => {
-                    if config.aliases.len() == 0 {
+                    if config.aliases.is_empty() {
                         eprintln!("{error}No aliases found");
                         exit(1);
                     }
@@ -627,8 +685,12 @@ async fn main() {
                                     config.default_fetch_provider = String::from("GOG Games");
                                     save_config(&config);
                                     println!("{success}Set value of default_fetch_provider to `{v}GOG Games{v:#}`");
+                                } else if value.unwrap() == "SteamRIP" {
+                                    config.default_fetch_provider = String::from("SteamRIP");
+                                    save_config(&config);
+                                    println!("{success}Set value of default_fetch_provider to `{v}SteamRIP{v:#}`");
                                 } else {
-                                    eprintln!("{error}Value needs to be either `{v}Game3rb{v:#}` or `{v}GOG Games{v:#}`");
+                                    eprintln!("{error}Value needs to be either `{v}SteamRIP{v:#}`, `{v}Game3rb{v:#}` or `{v}GOG Games{v:#}`");
                                 }
                             } else {
                                 println!("Current value of default_fetch_provider is `{v}{}{v:#}`", config.default_fetch_provider);
@@ -647,6 +709,7 @@ async fn main() {
                         _ => {
                             println!("{bold}Current config values:{bold:#}");
                             println!(" {bold}games_dir:{bold:#} `{v}{}{v:#}`", config.games_dir);
+                            println!(" {bold}default_fetch_provider:{bold:#} `{v}{}{v:#}`", config.default_fetch_provider);
                             println!(" {bold}check_for_updates:{bold:#} `{v}{}{v:#}`", config.check_for_updates);
                         }
                     }
@@ -704,6 +767,10 @@ async fn main() {
                     let game: &String = matches.get_one("game").unwrap();
                     fetch(game, &config.default_fetch_provider).await;
                 }
+                Some(("fetchrip", matches)) => {
+                    let game: &String = matches.get_one("game").unwrap();
+                    fetch(game, "SteamRIP").await;
+                }
                 Some(("fetchrb", matches)) => {
                     let game: &String = matches.get_one("game").unwrap();
                     fetch(game, "Game3rb").await;
@@ -718,10 +785,13 @@ async fn main() {
         Err(err) => err.print().unwrap()
     }
     check_config(&mut config);
-    match update_message {
-        Some(future) => {
-            println!("{}", future.await);
-        }
-        None => {}
+    // match update_message {
+    //     Some(future) => {
+    //         println!("{}", future.await);
+    //     }
+    //     None => {}
+    // }
+    if let Some(future) = update_message {
+        println!("{}", future.await);
     }
 }
