@@ -785,12 +785,6 @@ async fn main() {
         Err(err) => err.print().unwrap()
     }
     check_config(&mut config);
-    // match update_message {
-    //     Some(future) => {
-    //         println!("{}", future.await);
-    //     }
-    //     None => {}
-    // }
     if let Some(future) = update_message {
         println!("{}", future.await);
     }
